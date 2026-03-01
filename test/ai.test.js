@@ -161,3 +161,54 @@ test('AIClient: buildImageMessage() without text omits text part', () => {
   assert.equal(msg.content.length, 1);
   assert.equal(msg.content[0].type, 'image_url');
 });
+
+test('AIClient: chat() sends tools array when provided', async () => {
+  let captured;
+  const { server, port } = await startMockServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      captured = JSON.parse(body);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(okResponse('ok'));
+    });
+  });
+
+  try {
+    const client = new AIClient({ baseUrl: `http://127.0.0.1:${port}/v1` });
+    const tools  = [{ type: 'function', function: { name: 'test_fn', parameters: {} } }];
+    await client.chat([{ role: 'user', content: 'hi' }], { tools });
+    assert.deepEqual(captured.tools, tools, 'tools should be forwarded in the request body');
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test('AIClient: chat() with raw=true returns the full message object', async () => {
+  const { server, port } = await startMockServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{
+          message: {
+            role:       'assistant',
+            content:    null,
+            tool_calls: [{ function: { name: 'snap', arguments: '{}' } }],
+          },
+        }],
+      }));
+    });
+  });
+
+  try {
+    const client  = new AIClient({ baseUrl: `http://127.0.0.1:${port}/v1` });
+    const message = await client.chat([{ role: 'user', content: 'hi' }], { raw: true });
+    assert.equal(message.role, 'assistant');
+    assert.ok(Array.isArray(message.tool_calls), 'should expose tool_calls');
+    assert.equal(message.tool_calls[0].function.name, 'snap');
+  } finally {
+    await stopServer(server);
+  }
+});

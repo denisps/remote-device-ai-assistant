@@ -1,0 +1,311 @@
+#!/usr/bin/env node
+'use strict';
+
+const readline = require('readline');
+
+const { AIClient }                           = require('../lib/ai');
+const { VNCClient }                          = require('vnc-tool/lib/client');
+const { loadConfig, saveConfig, CONFIG_FILE } = require('../lib/config');
+const { Agent }                              = require('../lib/agent');
+
+// ── ANSI helpers ──────────────────────────────────────────────────────────────
+
+const C = {
+  reset:  '\x1b[0m',
+  bold:   '\x1b[1m',
+  dim:    '\x1b[2m',
+  green:  '\x1b[32m',
+  red:    '\x1b[31m',
+  yellow: '\x1b[33m',
+  cyan:   '\x1b[36m',
+};
+
+const ok   = (s) => `${C.green}✓${C.reset} ${s}`;
+const fail = (s) => `${C.red}✗${C.reset} ${s}`;
+const info = (s) => `${C.cyan}→${C.reset} ${s}`;
+const bold = (s) => `${C.bold}${s}${C.reset}`;
+const dim  = (s) => `${C.dim}${s}${C.reset}`;
+
+// ── Interactive prompt helpers ────────────────────────────────────────────────
+
+/** Prompt for a line of input with an optional default value. */
+function ask(question, defaultVal = '') {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const label = defaultVal !== '' ? `${question} [${defaultVal}]: ` : `${question}: `;
+    rl.question(label, (answer) => {
+      rl.close();
+      resolve(answer.trim() !== '' ? answer.trim() : defaultVal);
+    });
+  });
+}
+
+/** Prompt for a yes/no answer. */
+async function askYesNo(question, defaultYes = true) {
+  const hint   = defaultYes ? 'Y/n' : 'y/N';
+  const answer = await ask(`${question} [${hint}]`);
+  if (answer === '' || answer === (defaultYes ? 'Y/n' : 'y/N')) return defaultYes;
+  return /^y/i.test(answer);
+}
+
+/**
+ * Prompt for a secret value (password) without echoing typed characters.
+ * Falls back to a visible prompt when stdin is not a TTY.
+ */
+function askSecret(question) {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    let questionShown = false;
+    rl._writeToOutput = (str) => {
+      if (!questionShown) {
+        // First call is the question text — display it as-is
+        process.stdout.write(str);
+        questionShown = true;
+      } else if (str === '\r\n' || str === '\n' || str === '\r') {
+        // End of input — move to next line
+        process.stdout.write('\n');
+      }
+      // All other calls are typed characters — suppress echoing
+    };
+    rl.question(`${question}: `, (answer) => {
+      rl.close();
+      resolve(answer);
+    });
+  });
+}
+
+// ── Connection validators ─────────────────────────────────────────────────────
+
+async function validateAI(aiConfig) {
+  const ai = new AIClient(aiConfig);
+  try {
+    const reply = await ai.chat(
+      [{ role: 'user', content: 'Reply with the single word: connected' }],
+      { max_tokens: 20, temperature: 0 },
+    );
+    return { ok: true, response: (reply || '').trim().slice(0, 60) };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+async function validateVNC(vncConfig) {
+  const vnc = new VNCClient(vncConfig);
+  try {
+    await vnc.connect();
+    const width  = vnc.width;
+    const height = vnc.height;
+    await vnc.screenshot();
+    await vnc.disconnect();
+    return { ok: true, width, height };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// ── Setup wizard ──────────────────────────────────────────────────────────────
+
+async function setupWizard(existing) {
+  // ── AI ────────────────────────────────────────────────────────────────────
+  console.log();
+  console.log(bold('── AI API ────────────────────────────────────'));
+
+  const aiBaseUrl = await ask('API endpoint', existing?.ai?.baseUrl || 'http://localhost:11434/v1');
+  const aiApiKey  = await askSecret('API key (blank for local models)');
+  const aiModel   = await ask('Model name', existing?.ai?.model || 'llava');
+
+  const aiConfig = {
+    baseUrl: aiBaseUrl,
+    apiKey:  aiApiKey || 'no-key',
+    model:   aiModel,
+  };
+
+  process.stdout.write('Testing AI connection... ');
+  const aiResult = await validateAI(aiConfig);
+  if (aiResult.ok) {
+    console.log(ok(`Connected  (model replied: "${aiResult.response}")`));
+  } else {
+    console.log(fail(`Failed: ${aiResult.error}`));
+    if (!await askYesNo('Continue anyway?', false)) {
+      throw new Error('Setup cancelled');
+    }
+  }
+
+  // ── VNC ───────────────────────────────────────────────────────────────────
+  console.log();
+  console.log(bold('── VNC ───────────────────────────────────────'));
+
+  const vncHost     = await ask('Device IP or hostname', existing?.vnc?.host || '');
+  const vncPort     = parseInt(await ask('VNC port', String(existing?.vnc?.port || 5900)), 10);
+  const vncPassword = await askSecret('VNC password (blank if none)');
+
+  const vncConfig = {
+    host:     vncHost,
+    port:     vncPort,
+    password: vncPassword || null,
+  };
+
+  process.stdout.write('Testing VNC connection... ');
+  const vncResult = await validateVNC(vncConfig);
+  if (vncResult.ok) {
+    console.log(ok(`Connected  (${vncResult.width}×${vncResult.height})`));
+  } else {
+    console.log(fail(`Failed: ${vncResult.error}`));
+    if (!await askYesNo('Continue anyway?', false)) {
+      throw new Error('Setup cancelled');
+    }
+  }
+
+  // ── Optional ──────────────────────────────────────────────────────────────
+  console.log();
+  console.log(bold('── Optional ──────────────────────────────────'));
+  console.log(dim('(Used if the device shows a login screen before the desktop is visible)'));
+
+  const lockPassword = await askSecret('Lock-screen password (blank to skip)');
+
+  const config = {
+    ai:           aiConfig,
+    vnc:          vncConfig,
+    lockPassword: lockPassword || '',
+  };
+
+  await saveConfig(config);
+  console.log();
+  console.log(ok(`Configuration saved to ${dim(CONFIG_FILE)}`));
+  return config;
+}
+
+// ── Demo task ─────────────────────────────────────────────────────────────────
+
+const DEMO_TASK = [
+  'Change the desktop wallpaper to something different.',
+  'First, look at the screenshot and identify the operating system.',
+  'Then navigate to wallpaper settings using the appropriate method:',
+  '  - macOS:        open System Settings → Wallpaper',
+  '  - Windows:      right-click the desktop → Personalize → Background',
+  '  - Linux/GNOME:  right-click the desktop → Change Background',
+  'Once in the wallpaper settings, select any different wallpaper or solid color.',
+  'Return {"done":true,"result":"<description of what you changed>"} when finished.',
+].join(' ');
+
+// ── Task runner ───────────────────────────────────────────────────────────────
+
+async function runTask(config, task, { maxSteps = 15, label = 'Task' } = {}) {
+  const agent = new Agent({
+    vnc:      config.vnc,
+    ai:       config.ai,
+    maxSteps,
+  });
+
+  console.log();
+  console.log(bold(`── ${label} ──────────────────────────────────`));
+  console.log(dim(task.slice(0, 120) + (task.length > 120 ? '…' : '')));
+  console.log();
+
+  await agent.connect();
+  try {
+    const result = await agent.run(task, {
+      onStep: (step, actions) => {
+        const preview = JSON.stringify(actions).slice(0, 100);
+        console.log(info(`Step ${step}: ${preview}${preview.length >= 100 ? '…' : ''}`));
+      },
+    });
+    console.log();
+    console.log(ok(`Done in ${result.steps} step(s): ${result.result}`));
+    return result;
+  } finally {
+    await agent.disconnect();
+  }
+}
+
+// ── Usage ─────────────────────────────────────────────────────────────────────
+
+function printUsage() {
+  console.log(`${bold('remote-device-ai-assistant')}
+
+Usage: node bin/assistant [options]
+
+Options:
+  --setup          Re-run the setup wizard
+  --task "TEXT"    Run a specific task using saved configuration
+  --demo           Run the wallpaper-change demo
+  --help           Show this message
+
+Without options, the assistant checks for saved configuration and offers to run
+the demo, prompting for setup if no configuration is found.
+
+Configuration is stored in: ${dim(CONFIG_FILE)}
+`);
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+
+async function main() {
+  const args  = process.argv.slice(2);
+  const flags = new Set(args.filter((a) => a.startsWith('--')));
+
+  if (flags.has('--help')) {
+    printUsage();
+    return;
+  }
+
+  console.log();
+  console.log(bold('remote-device-ai-assistant'));
+  console.log(dim('─'.repeat(40)));
+
+  // --setup: force re-run wizard
+  if (flags.has('--setup')) {
+    const existing = await loadConfig();
+    await setupWizard(existing);
+    return;
+  }
+
+  // --task "TEXT": run a specific task
+  const taskIdx = args.indexOf('--task');
+  if (taskIdx !== -1) {
+    const taskText = args[taskIdx + 1];
+    if (!taskText || taskText.startsWith('--')) {
+      console.error(fail('--task requires a task description in quotes'));
+      process.exit(1);
+    }
+    const config = await loadConfig();
+    if (!config) {
+      console.error(fail('No saved configuration found. Run without arguments to set up.'));
+      process.exit(1);
+    }
+    await runTask(config, taskText);
+    return;
+  }
+
+  // --demo: run the wallpaper demo
+  if (flags.has('--demo')) {
+    const config = await loadConfig();
+    if (!config) {
+      console.error(fail('No saved configuration found. Run without arguments to set up.'));
+      process.exit(1);
+    }
+    await runTask(config, DEMO_TASK, { label: 'Demo: Change Wallpaper', maxSteps: 20 });
+    return;
+  }
+
+  // Interactive mode: check for existing config, offer to (re)run setup, then demo
+  let config = await loadConfig();
+  if (config) {
+    console.log(ok(`Found configuration: ${config.vnc.host} / model: ${config.ai.model}`));
+    const rerun = await askYesNo('Re-run setup wizard?', false);
+    if (rerun) config = await setupWizard(config);
+  } else {
+    console.log(info('No configuration found. Starting setup wizard.'));
+    config = await setupWizard(null);
+  }
+
+  const runDemo = await askYesNo('Run the wallpaper-change demo now?');
+  if (runDemo) {
+    await runTask(config, DEMO_TASK, { label: 'Demo: Change Wallpaper', maxSteps: 20 });
+  }
+}
+
+main().catch((e) => {
+  console.error(fail(e.message || String(e)));
+  process.exit(1);
+});

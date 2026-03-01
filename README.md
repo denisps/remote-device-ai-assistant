@@ -116,6 +116,43 @@ Integration tests connect to a real device and/or a real API. Set environment va
 VNC_HOST=192.168.1.10 AI_BASE_URL=http://localhost:11434/v1 npm run test:integration
 ```
 
+### Model compatibility tests
+
+The `test:compat` suite checks whether a specific model has the capabilities the assistant needs:
+
+| Test | What it checks |
+|------|----------------|
+| `compat/text` | Model responds to a basic text prompt |
+| `compat/vision` | Model can identify the colour of a solid-colour image |
+| `compat/json-output` | Model follows a JSON-only system instruction |
+| `compat/action-format` | Model produces parseable VNC action arrays |
+| `compat/tool-calling` | Model handles OpenAI function/tool definitions |
+| `compat/ui-identification` | Model can describe a screenshot |
+| `compat/prompt-customization` | Model adapts its behaviour to extra context in the system prompt |
+
+```bash
+AI_BASE_URL=http://localhost:11434/v1 AI_MODEL=llava npm run test:compat
+```
+
+## CLI
+
+`bin/assistant` is an interactive command-line tool for setting up a connection and running tasks.
+
+```bash
+node bin/assistant            # interactive setup wizard + demo
+node bin/assistant --setup    # re-run the setup wizard
+node bin/assistant --demo     # run the wallpaper-change demo
+node bin/assistant --task "Open a terminal"
+node bin/assistant --help
+```
+
+The wizard prompts for:
+- AI API endpoint, key, and model — then validates the connection
+- VNC host, port, and password — then validates the connection
+- Optional lock-screen password (used if the device shows a login screen)
+
+Verified settings are saved to `~/.config/remote-device-assistant/config.json`.
+
 ## License
 
 MIT

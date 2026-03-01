@@ -231,15 +231,23 @@ async function setupWizard(existing) {
 // ── Demo task ─────────────────────────────────────────────────────────────────
 
 const DEMO_TASK = [
-  'Change the desktop wallpaper to something different.',
-  'First, look at the screenshot and identify the operating system.',
-  'Then navigate to wallpaper settings using the appropriate method:',
-  '  - macOS:        open System Settings → Wallpaper',
-  '  - Windows:      right-click the desktop → Personalize → Background',
-  '  - Linux/GNOME:  right-click the desktop → Change Background',
-  'Once in the wallpaper settings, select any different wallpaper or solid color.',
-  'Return {"done":true,"result":"<description of what you changed>"} when finished.',
-].join(' ');
+  'Change the desktop wallpaper to a single different wallpaper of your choice, then show the result.',
+  '',
+  'Steps:',
+  '1. Identify the OS from the screenshot.',
+  '2. Open wallpaper settings:',
+  '     Android:      Settings → Wallpaper & style (or Display → Wallpaper)',
+  '     macOS:        System Settings → Wallpaper',
+  '     Windows:      right-click desktop → Personalize → Background',
+  '     Linux/GNOME:  right-click desktop → Change Background',
+  '3. Pick exactly ONE wallpaper or solid colour that looks nice.',
+  '   Apply/set it. Do NOT keep browsing or changing after the first selection.',
+  '4. Navigate back to the home screen / desktop so the new wallpaper is visible.',
+  '5. Return {"done":true,"result":"<friendly 1-sentence description of the new wallpaper>"}',
+  '   Example result: "Here is a nice wallpaper for you with blue skies and sunshine!"',
+  '',
+  'Important: stop after selecting ONE wallpaper. Do not loop or keep changing it.',
+].join('\n');
 
 // ── Task runner ───────────────────────────────────────────────────────────────
 
@@ -285,7 +293,12 @@ async function runTask(config, task, { maxSteps = 15, label = 'Task', verbose = 
       },
     });
     console.log();
-    console.log(ok(`Done in ${result.steps} step(s): ${result.result}`));
+    console.log(ok(`Done in ${result.steps} step(s)`));
+    if (result.result) {
+      console.log();
+      console.log(`  ${C.cyan}${C.bold}${result.result}${C.reset}`);
+    }
+    console.log();
     return result;
   } finally {
     await agent.disconnect();

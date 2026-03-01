@@ -235,7 +235,7 @@ const DEMO_TASK = [
  * @param {number} [runOpts.verbose]        0=default 1=verbose 2=debug
  * @param {boolean}[runOpts.screenshots]    save PNGs to /tmp/
  */
-async function runTask(config, task, { maxSteps = 15, label = 'Task', verbose = 0, screenshots = false, aiTimeout, maxImageWidth } = {}) {
+async function runTask(config, task, { maxSteps = 15, label = 'Task', verbose = 0, screenshots = false, aiTimeout, maxImageWidth, gridStep = 0 } = {}) {
   const agent = new Agent({
     vnc:           config.vnc,
     ai:            config.ai,
@@ -244,6 +244,7 @@ async function runTask(config, task, { maxSteps = 15, label = 'Task', verbose = 
     screenshotDir: screenshots ? true : null,
     aiTimeout,
     maxImageWidth,
+    gridStep,
   });
 
   console.log();
@@ -290,6 +291,9 @@ Options:
   --ai-timeout N      AI request timeout in seconds (default: 300)
   --max-image-width N Downscale screenshots to this width before sending to AI
                       (default: 768; 0 to disable)
+  --grid              Overlay a coordinate grid (100px spacing) on the AI image
+                      to help the model accurately identify element positions
+  --grid-step N       Same as --grid but with custom grid spacing in pixels
   --help              Show this message
 
 Without options, the assistant checks for saved configuration and offers to run
@@ -309,11 +313,14 @@ async function main() {
   const verbose     = flags.has('--debug') ? 2 : (flags.has('--verbose') || flags.has('-v') ? 1 : 0);
   const screenshots = flags.has('--screenshots');
 
-  // Parse --ai-timeout N (seconds) and --max-image-width N
+  // Parse --ai-timeout N (seconds), --max-image-width N, --grid-step N / --grid
   const aiTimeoutIdx    = args.indexOf('--ai-timeout');
   const aiTimeout       = aiTimeoutIdx !== -1 ? parseInt(args[aiTimeoutIdx + 1], 10) * 1000 : undefined;
   const maxImgWidthIdx  = args.indexOf('--max-image-width');
   const maxImageWidth   = maxImgWidthIdx !== -1 ? parseInt(args[maxImgWidthIdx + 1], 10) : undefined;
+  const gridStepIdx     = args.indexOf('--grid-step');
+  const gridStep        = gridStepIdx !== -1 ? parseInt(args[gridStepIdx + 1], 10)
+                        : flags.has('--grid') ? 100 : 0;
 
   if (flags.has('--help')) {
     printUsage();
@@ -344,7 +351,7 @@ async function main() {
       console.error(fail('No saved configuration found. Run without arguments to set up.'));
       process.exit(1);
     }
-    await runTask(config, taskText, { verbose, screenshots, aiTimeout, maxImageWidth });
+    await runTask(config, taskText, { verbose, screenshots, aiTimeout, maxImageWidth, gridStep });
     return;
   }
 
@@ -355,7 +362,7 @@ async function main() {
       console.error(fail('No saved configuration found. Run without arguments to set up.'));
       process.exit(1);
     }
-    await runTask(config, DEMO_TASK, { label: 'Demo: Change Wallpaper', maxSteps: 20, verbose, screenshots, aiTimeout, maxImageWidth });
+    await runTask(config, DEMO_TASK, { label: 'Demo: Change Wallpaper', maxSteps: 20, verbose, screenshots, aiTimeout, maxImageWidth, gridStep });
     return;
   }
 
@@ -373,7 +380,7 @@ async function main() {
   const runDemo = await askYesNo('Run the wallpaper-change demo now?');
   closeRL();
   if (runDemo) {
-    await runTask(config, DEMO_TASK, { label: 'Demo: Change Wallpaper', maxSteps: 20, verbose, screenshots, aiTimeout, maxImageWidth });
+    await runTask(config, DEMO_TASK, { label: 'Demo: Change Wallpaper', maxSteps: 20, verbose, screenshots, aiTimeout, maxImageWidth, gridStep });
   }
 }
 

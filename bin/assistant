@@ -7,6 +7,7 @@ const { AIClient }                           = require('../lib/ai');
 const { VNCClient }                          = require('vnc-tool/lib/client');
 const { loadConfig, saveConfig, CONFIG_FILE } = require('../lib/config');
 const { Agent }                              = require('../lib/agent');
+const { detectCoordSystem }                  = require('../lib/detect');
 
 // ── ANSI helpers ──────────────────────────────────────────────────────────────
 
@@ -192,6 +193,23 @@ async function setupWizard(existing) {
     }
   }
 
+  // ── Coordinate system detection ────────────────────────────────────────────
+  console.log();
+  console.log(bold('── Coordinate system ─────────────────────────'));
+  process.stdout.write('Testing model coordinate system... ');
+  let coordSystem = existing?.coordSystem || 'norm1000';
+  try {
+    const ai = new AIClient(aiConfig);
+    const detected = await detectCoordSystem(ai);
+    coordSystem = detected.mode;
+    console.log(ok(`Detected: ${bold(coordSystem)}`));
+    console.log(dim(`  ${detected.details}`));
+  } catch (e) {
+    console.log(fail(`Detection failed: ${e.message}`));
+    const manual = await ask(`Coordinate system ("norm1000" or "pixels")`, coordSystem);
+    if (manual === 'norm1000' || manual === 'pixels') coordSystem = manual;
+  }
+
   // ── Optional ──────────────────────────────────────────────────────────────
   console.log();
   console.log(bold('── Optional ──────────────────────────────────'));
@@ -202,6 +220,7 @@ async function setupWizard(existing) {
   const config = {
     ai:           aiConfig,
     vnc:          vncConfig,
+    coordSystem,
     lockPassword: lockPassword || '',
   };
 
@@ -245,6 +264,7 @@ async function runTask(config, task, { maxSteps = 15, label = 'Task', verbose = 
     aiTimeout,
     maxImageWidth,
     gridStep,
+    coordSystem:   config.coordSystem || 'norm1000',
   });
 
   console.log();

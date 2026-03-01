@@ -246,6 +246,7 @@ const DEMO_TASK =
  * @param {boolean}[runOpts.screenshots]    save PNGs to /tmp/
  */
 async function runTask(config, task, { maxSteps = 15, label = 'Task', verbose = 0, screenshots = false, aiTimeout, maxImageWidth, gridStep = 0 } = {}) {
+  // 1. Create agent
   const agent = new Agent({
     vnc:           config.vnc,
     ai:            config.ai,
@@ -258,25 +259,30 @@ async function runTask(config, task, { maxSteps = 15, label = 'Task', verbose = 
     coordSystem:   config.coordSystem || 'norm1000',
   });
 
+  // 2. Print header
   console.log();
   console.log(bold(`── ${label} ──────────────────────────────────`));
   console.log(dim(task.slice(0, 120) + (task.length > 120 ? '…' : '')));
   console.log();
 
+  // 3. Connect
   await agent.connect();
+
   try {
+    // 4. Run task — onStep prints a compact summary per step
     const result = await agent.run(task, {
       onStep: (step, actions) => {
-        // Build a compact step summary: show cmd + coords + reason for each action
-        const summary = actions.map(a => {
+        const parts = actions.map(a => {
           const coords = (a.x !== undefined && a.y !== undefined) ? ` (${a.x},${a.y})` : '';
-          const reason = a.reason ? ` "${a.reason}"` : '';
-          return `${a.cmd}${coords}${reason}`;
-        }).join('; ');
-        const preview = summary.length > 120 ? summary.slice(0, 120) + '…' : summary;
-        console.log(info(`Step ${step}: ${preview}`));
+          const extra  = a.text ? ` "${a.text}"` : (a.combo ? ` "${a.combo}"` : '');
+          return `${a.cmd}${coords}${extra}`;
+        });
+        const summary = parts.join('; ');
+        console.log(info(`Step ${step}: ${summary.slice(0, 120)}${summary.length > 120 ? '…' : ''}`));
       },
     });
+
+    // 5. Print result
     console.log();
     console.log(ok(`Done in ${result.steps} step(s)`));
     if (result.result) {

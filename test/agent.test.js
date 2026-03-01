@@ -68,3 +68,29 @@ test('parseResponse: handles multiple actions in array', () => {
   const result = parseResponse(JSON.stringify(actions));
   assert.deepEqual(result, actions);
 });
+
+// ── New: extract JSON from reasoning text ─────────────────────────────────────
+
+test('parseResponse: extracts single action from reasoning text', () => {
+  const text = 'OBSERVE: I see settings.\nPLAN: Click it.\nACT: {"cmd":"click","x":500,"y":250}\nEXPECT: Opens settings.';
+  const result = parseResponse(text);
+  assert.deepEqual(result, [{ cmd: 'click', x: 500, y: 250 }]);
+});
+
+test('parseResponse: extracts multiple actions from reasoning text', () => {
+  const text = 'I will type then press enter.\n{"cmd":"type","text":"hello"}\n{"cmd":"key","combo":"Return"}';
+  const result = parseResponse(text);
+  assert.deepEqual(result, [{ cmd: 'type', text: 'hello' }, { cmd: 'key', combo: 'Return' }]);
+});
+
+test('parseResponse: extracts done signal from reasoning text', () => {
+  const text = 'The wallpaper is set. The task is complete.\n{"done":true,"result":"Blue sky wallpaper applied"}';
+  const result = parseResponse(text);
+  assert.deepEqual(result, { done: true, result: 'Blue sky wallpaper applied' });
+});
+
+test('parseResponse: prefers fenced code block over inline', () => {
+  const text = 'Here are the actions:\n```json\n[{"cmd":"click","x":10,"y":20}]\n```\nSome text after.';
+  const result = parseResponse(text);
+  assert.deepEqual(result, [{ cmd: 'click', x: 10, y: 20 }]);
+});

@@ -396,6 +396,7 @@ async function main() {
     '--grid-step', '--grid', '-g',
     '--setup',
     '--task',
+    '--demo', '-D',
   ]);
 
   const args        = process.argv.slice(2);

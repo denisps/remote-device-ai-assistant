@@ -231,7 +231,7 @@ async function setupWizard(existing) {
 // ── Demo task ─────────────────────────────────────────────────────────────────
 
 const DEMO_TASK =
-  'Change the desktop wallpaper to a different wallpaper of your choice, then navigate back to the home screen so the new wallpaper is visible. ' +
+  'Change the desktop wallpaper to a different wallpaper of your choice, then navigate back to the home screen so the new wallpaper is visible. Always verify the button you are trying to click. For instance, home button is almost never on a sidebar.' +
   'When done, return {"done":true,"result":"<one friendly sentence describing the new wallpaper>"}';
 
 // ── Task runner ───────────────────────────────────────────────────────────────

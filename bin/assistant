@@ -358,19 +358,20 @@ function printUsage() {
 Usage: node bin/assistant [options]
 
 Options:
-  --setup           Re-run the setup wizard
-  --task "TEXT"     Run a specific task using saved configuration
-  --demo            Run the wallpaper-change demo
-  --verbose, -v       Show AI response text and per-action intent
-  --debug             Show full prompts + responses sent to/from the AI
-  --screenshots       Save each step screenshot to /tmp/rda-<timestamp>/
-  --ai-timeout N      AI request timeout in seconds (default: 300)
-  --max-image-width N Downscale screenshots to this width before sending to AI
-                      (default: 768; 0 to disable)
-  --grid              Overlay a coordinate grid (100px spacing) on the AI image
-                      to help the model accurately identify element positions
-  --grid-step N       Same as --grid but with custom grid spacing in pixels
-  --help              Show this message
+  --setup               Re-run the setup wizard
+  --task "TEXT"         Run a specific task using saved configuration
+  --demo                Run the wallpaper-change demo
+  --verbose, -v         Show AI response text and per-action intent
+  --debug, -d           Show full prompts + responses sent to/from the AI
+  --screenshots, -s     Save each step screenshot to /tmp/rda-<timestamp>/
+  --ai-timeout N, -t N  AI request timeout in seconds (default: 300)
+  --max-image-width N, -m N
+                        Downscale screenshots to this width before sending to AI
+                        (default: 768; 0 to disable)
+  --grid, -g            Overlay a coordinate grid (100px spacing) on the AI image
+                        to help the model accurately identify element positions
+  --grid-step N, -g N   Same as --grid but with custom grid spacing in pixels
+  --help, -h            Show this message
 
 Without options, the assistant checks for saved configuration and offers to run
 the demo, prompting for setup if no configuration is found.

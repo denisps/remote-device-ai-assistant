@@ -6,7 +6,7 @@ const readline = require('readline');
 const { AIClient }                           = require('../lib/ai');
 const { VNCClient }                          = require('vnc-tool/lib/client');
 const { loadConfig, saveConfig, CONFIG_FILE } = require('../lib/config');
-const { Agent }                              = require('../lib/agent');
+const { Agent, parseResponse }               = require('../lib/agent');
 const { detectCoordSystem }                  = require('../lib/detect');
 
 // ── ANSI helpers ──────────────────────────────────────────────────────────────
@@ -246,7 +246,8 @@ const DEMO_TASK =
  * @param {boolean}[runOpts.screenshots]    save PNGs to /tmp/
  */
 async function runTask(config, task, { maxSteps = 15, label = 'Task', verbose = 0, screenshots = false, aiTimeout, maxImageWidth, gridStep = 0 } = {}) {
-  // 1. Create agent
+
+  // ── Setup ───────────────────────────────────────────────────────────────────
   const agent = new Agent({
     vnc:           config.vnc,
     ai:            config.ai,
@@ -259,41 +260,94 @@ async function runTask(config, task, { maxSteps = 15, label = 'Task', verbose = 
     coordSystem:   config.coordSystem || 'norm1000',
   });
 
-  // 2. Print header
   console.log();
   console.log(bold(`── ${label} ──────────────────────────────────`));
   console.log(dim(task.slice(0, 120) + (task.length > 120 ? '…' : '')));
   console.log();
 
-  // 3. Connect
   await agent.connect();
 
-  try {
-    // 4. Run task — onStep prints a compact summary per step
-    const result = await agent.run(task, {
-      onStep: (step, actions) => {
-        const parts = actions.map(a => {
-          const coords = (a.x !== undefined && a.y !== undefined) ? ` (${a.x},${a.y})` : '';
-          const extra  = a.text ? ` "${a.text}"` : (a.combo ? ` "${a.combo}"` : '');
-          return `${a.cmd}${coords}${extra}`;
-        });
-        const summary = parts.join('; ');
-        console.log(info(`Step ${step}: ${summary.slice(0, 120)}${summary.length > 120 ? '…' : ''}`));
-      },
-    });
+  let history            = [];  // {step, reasoning, note}
+  let preActionScreenshot = null;
+  let finalResult        = { steps: maxSteps, result: 'Max steps reached' };
 
-    // 5. Print result
-    console.log();
-    console.log(ok(`Done in ${result.steps} step(s)`));
-    if (result.result) {
-      console.log();
-      console.log(`  ${C.cyan}${C.bold}${result.result}${C.reset}`);
+  try {
+    for (let step = 1; step <= maxSteps; step++) {
+
+      // Take a screenshot at the start of this step
+      const screenshot = await agent.screenshot();
+      agent.saveScreenshot(screenshot, `step-${step}-pre.png`);
+
+      // Evaluate whether the previous step's action had any visible effect
+      if (preActionScreenshot !== null) {
+        const changed = agent.screenshotChanged(preActionScreenshot, screenshot);
+        agent.annotateOutcome(history, changed);
+      }
+
+      // Compress history into a summary if it's getting long
+      history = await agent.summarizeHistory(history, task);
+
+      // Resize the screenshot for the AI and compute coordinate scales
+      const img = agent.prepareImage(screenshot);
+      agent.saveScreenshot(img.buffer, `step-${step}-ai.png`);
+      agent.logStep(step, img);
+
+      // Build the prompt and ask the AI
+      const messages    = agent.buildMessages(task, step, history, img);
+      agent.logPrompt(messages);
+      const responseText = await agent.chat(messages);
+      agent.logResponse(step, responseText);
+
+      // Parse the AI's reasoning and extract the intended action(s)
+      const parsed = parseResponse(responseText);
+
+      // If the model signals task completion, we're done
+      if (parsed.done) {
+        finalResult = { steps: step, result: parsed.result || 'Done' };
+        break;
+      }
+
+      // Scale coordinates from AI space (0-1000) to real screen pixels
+      const rawActions = Array.isArray(parsed) ? parsed : [parsed];
+      const actions    = agent.scaleActions(rawActions, img);
+
+      // Print a compact step summary and execute
+      printStepSummary(step, actions);
+      agent.logActions(actions);
+      preActionScreenshot = screenshot;
+      await agent.execute(actions);
+
+      // Poll the screen until it visibly changes (or timeout), then save post screenshot
+      const { screenshot: postPng } = await agent.waitForScreenChange(screenshot);
+      agent.saveScreenshot(postPng, `step-${step}-post.png`);
+
+      // Store the model's full reasoning as history for the next step
+      history.push({ step, reasoning: responseText.trim(), note: '' });
     }
-    console.log();
-    return result;
   } finally {
     await agent.disconnect();
   }
+
+  // Print final result
+  console.log();
+  console.log(ok(`Done in ${finalResult.steps} step(s)`));
+  if (finalResult.result && finalResult.result !== 'Max steps reached') {
+    console.log();
+    console.log(`  ${C.cyan}${C.bold}${finalResult.result}${C.reset}`);
+  }
+  console.log();
+  return finalResult;
+}
+
+/** Print a one-line summary of what the agent is about to do this step. */
+function printStepSummary(step, actions) {
+  const parts   = actions.map(a => {
+    const coords = a.x !== undefined ? ` (${a.x},${a.y})` : '';
+    const extra  = a.text ? ` "${a.text}"` : (a.combo ? ` "${a.combo}"` : '');
+    return `${a.cmd}${coords}${extra}`;
+  });
+  const summary = parts.join('; ');
+  console.log(info(`Step ${step}: ${summary.slice(0, 120)}${summary.length > 120 ? '…' : ''}`));
 }
 
 // ── Usage ─────────────────────────────────────────────────────────────────────

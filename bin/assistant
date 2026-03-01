@@ -28,11 +28,46 @@ const dim  = (s) => `${C.dim}${s}${C.reset}`;
 
 // ── Interactive prompt helpers ────────────────────────────────────────────────
 
+/**
+ * In non-TTY mode (piped input), stdin is pre-buffered upfront so that the
+ * async gap between sequential rl.question() calls does not cause readline to
+ * read ahead and discard answers meant for later prompts.
+ */
+let _pipedLines     = null;   // null = TTY / not yet initialised
+let _pipedLineIndex = 0;
+
+async function initStdin() {
+  if (process.stdin.isTTY) return;   // real terminal — nothing to do
+  if (_pipedLines !== null) return;  // already buffered
+  return new Promise((resolve) => {
+    const lines = [];
+    const rl = readline.createInterface({ input: process.stdin, terminal: false });
+    rl.on('line', (l) => lines.push(l));
+    rl.on('close', () => { _pipedLines = lines; resolve(); });
+  });
+}
+
+function closeRL() {
+  // Nothing to close — readline interfaces are short-lived in TTY mode
+  // and stdin is already consumed in piped mode.
+}
+
 /** Prompt for a line of input with an optional default value. */
 function ask(question, defaultVal = '') {
   return new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     const label = defaultVal !== '' ? `${question} [${defaultVal}]: ` : `${question}: `;
+
+    if (_pipedLines !== null) {
+      // Piped / non-interactive mode: answer from pre-buffered lines.
+      const raw    = (_pipedLineIndex < _pipedLines.length) ? _pipedLines[_pipedLineIndex++] : '';
+      const answer = raw.trim() !== '' ? raw.trim() : defaultVal;
+      process.stdout.write(`${label}${answer}\n`);
+      resolve(answer);
+      return;
+    }
+
+    // Interactive TTY mode.
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     rl.question(label, (answer) => {
       rl.close();
       resolve(answer.trim() !== '' ? answer.trim() : defaultVal);
@@ -53,19 +88,20 @@ async function askYesNo(question, defaultYes = true) {
  * Falls back to a visible prompt when stdin is not a TTY.
  */
 function askSecret(question) {
+  // In piped mode secrets are read the same as plain answers (no masking needed).
+  if (_pipedLines !== null) return ask(question);
+
   return new Promise((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     let questionShown = false;
     rl._writeToOutput = (str) => {
       if (!questionShown) {
-        // First call is the question text — display it as-is
         process.stdout.write(str);
         questionShown = true;
       } else if (str === '\r\n' || str === '\n' || str === '\r') {
-        // End of input — move to next line
         process.stdout.write('\n');
       }
-      // All other calls are typed characters — suppress echoing
+      // Suppress echoing of typed characters
     };
     rl.question(`${question}: `, (answer) => {
       rl.close();
@@ -241,6 +277,8 @@ Configuration is stored in: ${dim(CONFIG_FILE)}
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
+  await initStdin();
+
   const args  = process.argv.slice(2);
   const flags = new Set(args.filter((a) => a.startsWith('--')));
 
@@ -300,6 +338,7 @@ async function main() {
   }
 
   const runDemo = await askYesNo('Run the wallpaper-change demo now?');
+  closeRL();
   if (runDemo) {
     await runTask(config, DEMO_TASK, { label: 'Demo: Change Wallpaper', maxSteps: 20 });
   }

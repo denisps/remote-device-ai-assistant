@@ -226,11 +226,22 @@ const DEMO_TASK = [
 
 // ── Task runner ───────────────────────────────────────────────────────────────
 
-async function runTask(config, task, { maxSteps = 15, label = 'Task' } = {}) {
+/**
+ * @param {object} config
+ * @param {string} task
+ * @param {object} [runOpts]
+ * @param {number} [runOpts.maxSteps]
+ * @param {string} [runOpts.label]
+ * @param {number} [runOpts.verbose]        0=default 1=verbose 2=debug
+ * @param {boolean}[runOpts.screenshots]    save PNGs to /tmp/
+ */
+async function runTask(config, task, { maxSteps = 15, label = 'Task', verbose = 0, screenshots = false } = {}) {
   const agent = new Agent({
-    vnc:      config.vnc,
-    ai:       config.ai,
+    vnc:           config.vnc,
+    ai:            config.ai,
     maxSteps,
+    verbose,
+    screenshotDir: screenshots ? true : null,
   });
 
   console.log();
@@ -242,8 +253,14 @@ async function runTask(config, task, { maxSteps = 15, label = 'Task' } = {}) {
   try {
     const result = await agent.run(task, {
       onStep: (step, actions) => {
-        const preview = JSON.stringify(actions).slice(0, 100);
-        console.log(info(`Step ${step}: ${preview}${preview.length >= 100 ? '…' : ''}`));
+        // Build a compact step summary: show cmd + coords + reason for each action
+        const summary = actions.map(a => {
+          const coords = (a.x !== undefined && a.y !== undefined) ? ` (${a.x},${a.y})` : '';
+          const reason = a.reason ? ` "${a.reason}"` : '';
+          return `${a.cmd}${coords}${reason}`;
+        }).join('; ');
+        const preview = summary.length > 120 ? summary.slice(0, 120) + '…' : summary;
+        console.log(info(`Step ${step}: ${preview}`));
       },
     });
     console.log();
@@ -262,10 +279,13 @@ function printUsage() {
 Usage: node bin/assistant [options]
 
 Options:
-  --setup          Re-run the setup wizard
-  --task "TEXT"    Run a specific task using saved configuration
-  --demo           Run the wallpaper-change demo
-  --help           Show this message
+  --setup           Re-run the setup wizard
+  --task "TEXT"     Run a specific task using saved configuration
+  --demo            Run the wallpaper-change demo
+  --verbose, -v     Show AI response text and per-action intent
+  --debug           Show full prompts + responses sent to/from the AI
+  --screenshots     Save each step screenshot to /tmp/rda-<timestamp>/
+  --help            Show this message
 
 Without options, the assistant checks for saved configuration and offers to run
 the demo, prompting for setup if no configuration is found.
@@ -279,8 +299,10 @@ Configuration is stored in: ${dim(CONFIG_FILE)}
 async function main() {
   await initStdin();
 
-  const args  = process.argv.slice(2);
-  const flags = new Set(args.filter((a) => a.startsWith('--')));
+  const args        = process.argv.slice(2);
+  const flags       = new Set(args.filter((a) => a.startsWith('--') || a.startsWith('-')));
+  const verbose     = flags.has('--debug') ? 2 : (flags.has('--verbose') || flags.has('-v') ? 1 : 0);
+  const screenshots = flags.has('--screenshots');
 
   if (flags.has('--help')) {
     printUsage();
@@ -311,7 +333,7 @@ async function main() {
       console.error(fail('No saved configuration found. Run without arguments to set up.'));
       process.exit(1);
     }
-    await runTask(config, taskText);
+    await runTask(config, taskText, { verbose, screenshots });
     return;
   }
 
@@ -322,7 +344,7 @@ async function main() {
       console.error(fail('No saved configuration found. Run without arguments to set up.'));
       process.exit(1);
     }
-    await runTask(config, DEMO_TASK, { label: 'Demo: Change Wallpaper', maxSteps: 20 });
+    await runTask(config, DEMO_TASK, { label: 'Demo: Change Wallpaper', maxSteps: 20, verbose, screenshots });
     return;
   }
 
@@ -340,7 +362,7 @@ async function main() {
   const runDemo = await askYesNo('Run the wallpaper-change demo now?');
   closeRL();
   if (runDemo) {
-    await runTask(config, DEMO_TASK, { label: 'Demo: Change Wallpaper', maxSteps: 20 });
+    await runTask(config, DEMO_TASK, { label: 'Demo: Change Wallpaper', maxSteps: 20, verbose, screenshots });
   }
 }
 

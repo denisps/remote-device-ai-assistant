@@ -384,21 +384,43 @@ Configuration is stored in: ${dim(CONFIG_FILE)}
 async function main() {
   await initStdin();
 
+  // ── Command-line argument parsing ─────────────────────────────────────────────
+  const KNOWN_SWITCHES = new Set([
+    '--help', '-h',
+    '--debug', '-d',
+    '--verbose', '-v',
+    '--screenshots', '-s',
+    '--ai-timeout', '-t',
+    '--max-image-width', '-m',
+    '--grid-step', '--grid', '-g',
+    '--setup',
+    '--task',
+  ]);
+
   const args        = process.argv.slice(2);
   const flags       = new Set(args.filter((a) => a.startsWith('--') || a.startsWith('-')));
-  const verbose     = flags.has('--debug') ? 2 : (flags.has('--verbose') || flags.has('-v') ? 1 : 0);
-  const screenshots = flags.has('--screenshots');
 
-  // Parse --ai-timeout N (seconds), --max-image-width N, --grid-step N / --grid
-  const aiTimeoutIdx    = args.indexOf('--ai-timeout');
+  // Reject unknown switches
+  for (const flag of flags) {
+    if (!KNOWN_SWITCHES.has(flag)) {
+      console.error(`${C.red}Unknown switch:${C.reset} ${flag}`);
+      process.exit(1);
+    }
+  }
+
+  const verbose     = flags.has('--debug') || flags.has('-d') ? 2 : (flags.has('--verbose') || flags.has('-v') ? 1 : 0);
+  const screenshots = flags.has('--screenshots') || flags.has('-s');
+
+  // Parse --ai-timeout/-t N (seconds), --max-image-width/-m N, --grid-step/--grid/-g N
+  const aiTimeoutIdx    = args.findIndex(a => a === '--ai-timeout' || a === '-t');
   const aiTimeout       = aiTimeoutIdx !== -1 ? parseInt(args[aiTimeoutIdx + 1], 10) * 1000 : undefined;
-  const maxImgWidthIdx  = args.indexOf('--max-image-width');
+  const maxImgWidthIdx  = args.findIndex(a => a === '--max-image-width' || a === '-m');
   const maxImageWidth   = maxImgWidthIdx !== -1 ? parseInt(args[maxImgWidthIdx + 1], 10) : undefined;
-  const gridStepIdx     = args.indexOf('--grid-step');
+  const gridStepIdx     = args.findIndex(a => a === '--grid-step' || a === '--grid' || a === '-g');
   const gridStep        = gridStepIdx !== -1 ? parseInt(args[gridStepIdx + 1], 10)
-                        : flags.has('--grid') ? 100 : 0;
+                        : flags.has('--grid') || flags.has('-g') ? 100 : 0;
 
-  if (flags.has('--help')) {
+  if (flags.has('--help') || flags.has('-h')) {
     printUsage();
     return;
   }

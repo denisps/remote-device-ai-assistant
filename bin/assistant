@@ -168,6 +168,21 @@ async function setupWizard(existing) {
     }
   }
 
+  // Detect coordinate system right after AI validation (vision test).
+  process.stdout.write('Detecting coordinate system... ');
+  let coordSystem = existing?.coordSystem || 'norm1000';
+  try {
+    const ai = new AIClient(aiConfig);
+    const detected = await detectCoordSystem(ai);
+    coordSystem = detected.mode;
+    console.log(ok(`${bold(coordSystem)}`));
+    console.log(dim(`  ${detected.details}`));
+  } catch (e) {
+    console.log(fail(`Detection failed: ${e.message}`));
+    const manual = await ask('Coordinate system ("norm1000" or "pixels")', coordSystem);
+    if (manual === 'norm1000' || manual === 'pixels') coordSystem = manual;
+  }
+
   // ── VNC ───────────────────────────────────────────────────────────────────
   console.log();
   console.log(bold('── VNC ───────────────────────────────────────'));
@@ -191,23 +206,6 @@ async function setupWizard(existing) {
     if (!await askYesNo('Continue anyway?', false)) {
       throw new Error('Setup cancelled');
     }
-  }
-
-  // ── Coordinate system detection ────────────────────────────────────────────
-  console.log();
-  console.log(bold('── Coordinate system ─────────────────────────'));
-  process.stdout.write('Testing model coordinate system... ');
-  let coordSystem = existing?.coordSystem || 'norm1000';
-  try {
-    const ai = new AIClient(aiConfig);
-    const detected = await detectCoordSystem(ai);
-    coordSystem = detected.mode;
-    console.log(ok(`Detected: ${bold(coordSystem)}`));
-    console.log(dim(`  ${detected.details}`));
-  } catch (e) {
-    console.log(fail(`Detection failed: ${e.message}`));
-    const manual = await ask(`Coordinate system ("norm1000" or "pixels")`, coordSystem);
-    if (manual === 'norm1000' || manual === 'pixels') coordSystem = manual;
   }
 
   // ── Optional ──────────────────────────────────────────────────────────────

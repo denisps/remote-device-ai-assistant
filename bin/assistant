@@ -235,13 +235,15 @@ const DEMO_TASK = [
  * @param {number} [runOpts.verbose]        0=default 1=verbose 2=debug
  * @param {boolean}[runOpts.screenshots]    save PNGs to /tmp/
  */
-async function runTask(config, task, { maxSteps = 15, label = 'Task', verbose = 0, screenshots = false } = {}) {
+async function runTask(config, task, { maxSteps = 15, label = 'Task', verbose = 0, screenshots = false, aiTimeout, maxImageWidth } = {}) {
   const agent = new Agent({
     vnc:           config.vnc,
     ai:            config.ai,
     maxSteps,
     verbose,
     screenshotDir: screenshots ? true : null,
+    aiTimeout,
+    maxImageWidth,
   });
 
   console.log();
@@ -282,10 +284,13 @@ Options:
   --setup           Re-run the setup wizard
   --task "TEXT"     Run a specific task using saved configuration
   --demo            Run the wallpaper-change demo
-  --verbose, -v     Show AI response text and per-action intent
-  --debug           Show full prompts + responses sent to/from the AI
-  --screenshots     Save each step screenshot to /tmp/rda-<timestamp>/
-  --help            Show this message
+  --verbose, -v       Show AI response text and per-action intent
+  --debug             Show full prompts + responses sent to/from the AI
+  --screenshots       Save each step screenshot to /tmp/rda-<timestamp>/
+  --ai-timeout N      AI request timeout in seconds (default: 300)
+  --max-image-width N Downscale screenshots to this width before sending to AI
+                      (default: 768; 0 to disable)
+  --help              Show this message
 
 Without options, the assistant checks for saved configuration and offers to run
 the demo, prompting for setup if no configuration is found.
@@ -303,6 +308,12 @@ async function main() {
   const flags       = new Set(args.filter((a) => a.startsWith('--') || a.startsWith('-')));
   const verbose     = flags.has('--debug') ? 2 : (flags.has('--verbose') || flags.has('-v') ? 1 : 0);
   const screenshots = flags.has('--screenshots');
+
+  // Parse --ai-timeout N (seconds) and --max-image-width N
+  const aiTimeoutIdx    = args.indexOf('--ai-timeout');
+  const aiTimeout       = aiTimeoutIdx !== -1 ? parseInt(args[aiTimeoutIdx + 1], 10) * 1000 : undefined;
+  const maxImgWidthIdx  = args.indexOf('--max-image-width');
+  const maxImageWidth   = maxImgWidthIdx !== -1 ? parseInt(args[maxImgWidthIdx + 1], 10) : undefined;
 
   if (flags.has('--help')) {
     printUsage();
@@ -333,7 +344,7 @@ async function main() {
       console.error(fail('No saved configuration found. Run without arguments to set up.'));
       process.exit(1);
     }
-    await runTask(config, taskText, { verbose, screenshots });
+    await runTask(config, taskText, { verbose, screenshots, aiTimeout, maxImageWidth });
     return;
   }
 
@@ -344,7 +355,7 @@ async function main() {
       console.error(fail('No saved configuration found. Run without arguments to set up.'));
       process.exit(1);
     }
-    await runTask(config, DEMO_TASK, { label: 'Demo: Change Wallpaper', maxSteps: 20, verbose, screenshots });
+    await runTask(config, DEMO_TASK, { label: 'Demo: Change Wallpaper', maxSteps: 20, verbose, screenshots, aiTimeout, maxImageWidth });
     return;
   }
 
@@ -362,7 +373,7 @@ async function main() {
   const runDemo = await askYesNo('Run the wallpaper-change demo now?');
   closeRL();
   if (runDemo) {
-    await runTask(config, DEMO_TASK, { label: 'Demo: Change Wallpaper', maxSteps: 20, verbose, screenshots });
+    await runTask(config, DEMO_TASK, { label: 'Demo: Change Wallpaper', maxSteps: 20, verbose, screenshots, aiTimeout, maxImageWidth });
   }
 }
 

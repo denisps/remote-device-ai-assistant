@@ -155,4 +155,4 @@ Verified settings are saved to `~/.config/remote-device-assistant/config.json`.
 
 ## License
 
-MIT
+GPL 3.0

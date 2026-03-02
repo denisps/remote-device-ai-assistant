@@ -1,6 +1,6 @@
 {
   "name": "remote-device-ai-assistant",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Minimal AI assistant for remote devices via VNC using any OpenAI-compatible API",
   "main": "lib/index.js",
   "bin": {
@@ -14,7 +14,7 @@
   },
   "engines": { "node": ">=18" },
   "dependencies": {
-    "vnc-tool": "github:denisps/vnc-tool"
+    "vnc-tool": "github:denisps/vnc-tool#semver:^0.2.0"
   },
   "license": "MIT"
 }

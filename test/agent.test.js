@@ -94,3 +94,113 @@ test('parseResponse: prefers fenced code block over inline', () => {
   const result = parseResponse(text);
   assert.deepEqual(result, [{ cmd: 'click', x: 10, y: 20 }]);
 });
+
+// ── New tests for VNC efficiency features ─────────────────────────────────
+
+const { Agent } = require('../lib/agent');
+const { encodePNG } = require('vnc-tool/lib/png');
+
+// helper to create a raw RGBA buffer of given dimensions
+function makeRaw(w, h, fill = 0) {
+  const buf = Buffer.alloc(w * h * 4);
+  buf.fill(fill);
+  return buf;
+}
+
+test('Agent.screenshotRaw returns underlying framebuffer when available', async () => {
+  const agent = new Agent();
+  agent._vnc = { width: 2, height: 1, screenshotRaw: Buffer.from([1,2,3,4,5,6,7,8]) };
+  const r = await agent.screenshotRaw();
+  assert.deepEqual(r, { width: 2, height: 1, rgba: agent._vnc.screenshotRaw });
+});
+
+test('Agent.screenshotRaw falls back to decoding PNG when no raw buffer', async () => {
+  const agent = new Agent();
+  const raw = makeRaw(2,1);
+  let saw = false;
+  agent._vnc = {
+    width: 2, height: 1,
+    screenshotRaw: null,
+    screenshot: async () => { saw = true; return encodePNG(2,1,raw); }
+  };
+  const r = await agent.screenshotRaw();
+  assert.ok(saw, 'screenshot() should have been called');
+  assert.deepEqual(r, { width: 2, height: 1, rgba: raw });
+});
+
+test('Agent.waitForScreenChange uses updateCount to avoid extra screenshots', async () => {
+  const agent = new Agent();
+  let called = 0;
+  agent._vnc = {
+    updateCount: 0,
+    screenshot: async () => { called++; return Buffer.from('A'); }
+  };
+  // bump updateCount after a short delay so waitForScreenChange exits early
+  setTimeout(() => { agent._vnc.updateCount = 5; }, 50);
+
+  const result = await agent.waitForScreenChange(Buffer.from('B'), { maxWait: 500, pollInterval: 20 });
+  assert.equal(result.changed, true);
+  assert.equal(called, 1, 'should only take one screenshot after update');
+});
+
+test('Agent.waitForScreenChange times out and takes final screenshot if no updates', async () => {
+  const agent = new Agent();
+  let called = 0;
+  agent._vnc = {
+    updateCount: 0,
+    screenshot: async () => { called++; return Buffer.from('same'); }
+  };
+
+  const result = await agent.waitForScreenChange(Buffer.from('same'), { maxWait: 100, pollInterval: 20 });
+  assert.equal(result.changed, false);
+  assert.equal(called, 1, 'should take exactly one screenshot at timeout');
+});
+
+// ── Agent.run behaviour tests ────────────────────────────────────────────────
+
+test('Agent.run stops when AI signals done and returns result', async () => {
+  const agent = new Agent();
+  const raw = makeRaw(1, 1);
+  agent._vnc = {
+    width: 1, height: 1,
+    screenshotRaw: raw,
+    screenshot: async () => encodePNG(1, 1, raw),
+    updateCount: 0,
+  };
+  let chatCalls = 0;
+  agent.chat = async () => {
+    chatCalls++;
+    return JSON.stringify({ done: true, result: 'completed' });
+  };
+  agent.execute = async () => {};
+
+  const res = await agent.run('whatever', { maxSteps: 5, onStep: () => { throw new Error('should not call'); } });
+  assert.equal(res.steps, 1);
+  assert.equal(res.result, 'completed');
+});
+
+test('Agent.run invokes onStep for each step with actions', async () => {
+  const agent = new Agent();
+  const raw = makeRaw(1, 1);
+  agent._vnc = {
+    width: 1, height: 1,
+    screenshotRaw: raw,
+    screenshot: async () => encodePNG(1, 1, raw),
+    updateCount: 0,
+  };
+  // first call returns an action, second call signals done
+  let chatCalls = 0;
+  agent.chat = async () => {
+    chatCalls++;
+    if (chatCalls === 1) return JSON.stringify([{ cmd: 'click', x: 0, y: 0 }]);
+    return JSON.stringify({ done: true, result: 'done' });
+  };
+  agent.execute = async () => {};
+
+  const steps = [];
+  const res = await agent.run('test', { maxSteps: 3, onStep: (s, actions) => steps.push({ s, actions }) });
+  assert.equal(res.result, 'done');
+  assert.equal(steps.length, 1, 'one onStep callback should have been invoked');
+  assert.equal(steps[0].s, 1);
+  assert.deepEqual(steps[0].actions, [{ cmd: 'click', x: 0, y: 0 }]);
+});

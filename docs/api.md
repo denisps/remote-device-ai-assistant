@@ -70,11 +70,21 @@ Disconnect from the VNC server.
 
 #### `run(task, [opts])` → `Promise<{steps, result}>`
 
-Run a task described in natural language.
+Run a task described in natural language. This is the same loop used by the
+CLI and exposes several hooks for programmatic use.
 
 - `task` — what to do on the remote desktop
+- `opts.maxSteps` — override the agent's configured maximum steps
 - `opts.onStep(step, actions)` — optional callback called before each action set is executed
 - Returns `{ steps: number, result: string }`
+
+#### `screenshotRaw()` → `{width, height, rgba}` | `null`
+
+Return the current framebuffer as a raw RGBA Buffer (width*height*4 bytes).
+No PNG encoding is performed; the result will be `null` until at least one
+update has been received. Useful for cheap change detection or custom encoding.
+
+
 
 ---
 

@@ -109,9 +109,13 @@ function makeRaw(w, h, fill = 0) {
 
 test('Agent.screenshotRaw returns underlying framebuffer when available', async () => {
   const agent = new Agent();
-  agent._vnc = { width: 2, height: 1, screenshotRaw: Buffer.from([1,2,3,4,5,6,7,8]) };
+  const rawBuf = Buffer.from([1,2,3,4,5,6,7,8]);
+  agent._vnc = { width: 2, height: 1 };
+  agent._screenBuffer = {
+    captureScreen: () => ({ width: 2, height: 1, rgba: rawBuf })
+  };
   const r = await agent.screenshotRaw();
-  assert.deepEqual(r, { width: 2, height: 1, rgba: agent._vnc.screenshotRaw });
+  assert.deepEqual(r, { width: 2, height: 1, rgba: rawBuf });
 });
 
 test('Agent.screenshotRaw falls back to decoding PNG when no raw buffer', async () => {
@@ -120,9 +124,9 @@ test('Agent.screenshotRaw falls back to decoding PNG when no raw buffer', async 
   let saw = false;
   agent._vnc = {
     width: 2, height: 1,
-    screenshotRaw: null,
     screenshot: async () => { saw = true; return encodePNG(2,1,raw); }
   };
+  agent._screenBuffer = null; // no screen buffer available
   const r = await agent.screenshotRaw();
   assert.ok(saw, 'screenshot() should have been called');
   assert.deepEqual(r, { width: 2, height: 1, rgba: raw });
@@ -132,11 +136,11 @@ test('Agent.waitForScreenChange uses updateCount to avoid extra screenshots', as
   const agent = new Agent();
   let called = 0;
   agent._vnc = {
-    updateCount: 0,
     screenshot: async () => { called++; return Buffer.from('A'); }
   };
+  agent._screenBuffer = { updateCount: 0 };
   // bump updateCount after a short delay so waitForScreenChange exits early
-  setTimeout(() => { agent._vnc.updateCount = 5; }, 50);
+  setTimeout(() => { agent._screenBuffer.updateCount = 5; }, 50);
 
   const result = await agent.waitForScreenChange(Buffer.from('B'), { maxWait: 500, pollInterval: 20 });
   assert.equal(result.changed, true);
@@ -147,9 +151,9 @@ test('Agent.waitForScreenChange times out and takes final screenshot if no updat
   const agent = new Agent();
   let called = 0;
   agent._vnc = {
-    updateCount: 0,
     screenshot: async () => { called++; return Buffer.from('same'); }
   };
+  agent._screenBuffer = { updateCount: 0 };
 
   const result = await agent.waitForScreenChange(Buffer.from('same'), { maxWait: 100, pollInterval: 20 });
   assert.equal(result.changed, false);
@@ -163,8 +167,10 @@ test('Agent.run stops when AI signals done and returns result', async () => {
   const raw = makeRaw(1, 1);
   agent._vnc = {
     width: 1, height: 1,
-    screenshotRaw: raw,
     screenshot: async () => encodePNG(1, 1, raw),
+  };
+  agent._screenBuffer = {
+    captureScreen: () => ({ width: 1, height: 1, rgba: raw }),
     updateCount: 0,
   };
   let chatCalls = 0;
@@ -184,8 +190,10 @@ test('Agent.run invokes onStep for each step with actions', async () => {
   const raw = makeRaw(1, 1);
   agent._vnc = {
     width: 1, height: 1,
-    screenshotRaw: raw,
     screenshot: async () => encodePNG(1, 1, raw),
+  };
+  agent._screenBuffer = {
+    captureScreen: () => ({ width: 1, height: 1, rgba: raw }),
     updateCount: 0,
   };
   // first call returns an action, second call signals done

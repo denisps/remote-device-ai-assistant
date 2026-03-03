@@ -8,13 +8,13 @@ The agent takes screenshots, sends them to the AI, and executes the returned act
 
 - No production dependencies beyond [vnc-tool](https://github.com/denisps/vnc-tool)
 
-### Performance tweaks (vnc-tool 0.2.0+)
+### Performance optimizations (vnc-tool 0.3.0+)
 
-The agent now watches the VNC client's `updateCount` property to detect
-framebuffer changes; this allows it to skip repeated PNG captures while
-waiting for the screen to update.  A new `screenshotRaw()` helper returns the
-RGBA frame directly, so we avoid any PNG encoding/decoding until the image is
-actually saved or sent to the AI.
+The agent uses vnc-tool's `startScreenBuffering()` API for efficient screen
+capture. The screen buffer is initialized once on connect, then all subsequent
+screenshot operations are synchronous with no I/O overhead. The buffer's
+`updateCount` property enables smart polling that skips unnecessary captures
+while waiting for screen updates.
 - Works with local vision models via [ollama](https://ollama.com) or [llama.cpp](https://github.com/ggerganov/llama.cpp)
 - System prompt is short, easy to read, and easy to customise
 - Pure Node.js ≥ 18 — no native modules, no build step

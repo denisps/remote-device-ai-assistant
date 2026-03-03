@@ -265,10 +265,23 @@ async function runTask(config, task, { maxSteps = 15, label = 'Task', verbose = 
   console.log(dim(task.slice(0, 120) + (task.length > 120 ? '…' : '')));
   console.log();
 
-  await agent.connect();
   let finalResult;
   try {
+    await agent.connect();
     finalResult = await agent.run(task, { maxSteps });
+  } catch (err) {
+    // Surface connection and runtime errors with a clean message instead of
+    // a raw stack trace from an unhandled EventEmitter 'error' event.
+    const msg = err.code === 'ECONNREFUSED'
+      ? `VNC connection refused — is the device at ${config.vnc.host}:${config.vnc.port} reachable?`
+      : err.code === 'ETIMEDOUT' || err.code === 'EHOSTUNREACH'
+      ? `VNC connection timed out — check the host address and network.`
+      : err.code === 'ENOTFOUND'
+      ? `VNC host not found: ${config.vnc.host}`
+      : err.message || String(err);
+    console.error();
+    console.error(fail(msg));
+    return;
   } finally {
     await agent.disconnect();
   }

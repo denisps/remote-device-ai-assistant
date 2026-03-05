@@ -132,7 +132,7 @@ test('Agent.screenshotRaw falls back to decoding PNG when no raw buffer', async 
   assert.deepEqual(r, { width: 2, height: 1, rgba: raw });
 });
 
-test('Agent.waitForScreenChange uses updateCount to avoid extra screenshots', async () => {
+test('Agent.waitForScreenChange returns quickly when updateCount moves and never screenshots', async () => {
   const agent = new Agent();
   let called = 0;
   agent._vnc = {
@@ -142,12 +142,12 @@ test('Agent.waitForScreenChange uses updateCount to avoid extra screenshots', as
   // bump updateCount after a short delay so waitForScreenChange exits early
   setTimeout(() => { agent._screenBuffer.updateCount = 5; }, 50);
 
-  const result = await agent.waitForScreenChange(Buffer.from('B'), { maxWait: 500, pollInterval: 20 });
+  const result = await agent.waitForScreenChange({ maxWait: 500, pollInterval: 20 });
   assert.equal(result.changed, true);
-  assert.equal(called, 1, 'should only take one screenshot after update');
+  assert.equal(called, 0, 'should not take any screenshots');
 });
 
-test('Agent.waitForScreenChange times out and takes final screenshot if no updates', async () => {
+test('Agent.waitForScreenChange times out and returns false when no updates', async () => {
   const agent = new Agent();
   let called = 0;
   agent._vnc = {
@@ -155,9 +155,9 @@ test('Agent.waitForScreenChange times out and takes final screenshot if no updat
   };
   agent._screenBuffer = { updateCount: 0 };
 
-  const result = await agent.waitForScreenChange(Buffer.from('same'), { maxWait: 100, pollInterval: 20 });
+  const result = await agent.waitForScreenChange({ maxWait: 100, pollInterval: 20 });
   assert.equal(result.changed, false);
-  assert.equal(called, 1, 'should take exactly one screenshot at timeout');
+  assert.equal(called, 0, 'should not take any screenshots');
 });
 
 // ── Agent.run behaviour tests ────────────────────────────────────────────────

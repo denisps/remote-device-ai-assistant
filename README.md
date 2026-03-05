@@ -13,8 +13,13 @@ The agent takes screenshots, sends them to the AI, and executes the returned act
 The agent uses vnc-tool's `startScreenBuffering()` API for efficient screen
 capture. The screen buffer is initialized once on connect, then all subsequent
 screenshot operations are synchronous with no I/O overhead. The buffer's
-`updateCount` property enables smart polling that skips unnecessary captures
-while waiting for screen updates.
+`updateCount` property is a *float* representing the number of pixels that
+have changed divided by the total number of pixels in the framebuffer.
+(+1 means a full‑screen worth of change.)  Smart polling uses this value to
+skip unnecessary captures while waiting for screen updates.  Agents can also
+supply a per-action `minChange` hint (via the model response) telling the
+runtime how much activity to expect – fractions like `0.1` (10% of pixels)
+or larger values are both valid.
 - Works with local vision models via [ollama](https://ollama.com) or [llama.cpp](https://github.com/ggerganov/llama.cpp)
 - System prompt is short, easy to read, and easy to customise
 - Pure Node.js ≥ 18 — no native modules, no build step

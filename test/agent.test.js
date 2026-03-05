@@ -227,3 +227,63 @@ test('Agent.run throws if screenshotRaw returns null', async () => {
     /Unable to capture screenshot/,
   );
 });
+
+// ── Logging behaviour tests ───────────────────────────────────────────────
+
+test('Agent.run does not print step summary when verbose=0', async () => {
+  const agent = new Agent(); // default verbose 0
+  const raw = makeRaw(1, 1);
+  agent._vnc = {
+    width: 1, height: 1,
+    screenshot: async () => encodePNG(1, 1, raw),
+  };
+  agent._screenBuffer = {
+    captureScreen: () => ({ width: 1, height: 1, rgba: raw }),
+    updateCount: 0,
+  };
+  let chatCalls = 0;
+  agent.chat = async () => {
+    chatCalls++;
+    if (chatCalls === 1) return JSON.stringify([{ cmd: 'click', x: 0, y: 0 }]);
+    return JSON.stringify({ done: true, result: 'done' });
+  };
+  agent.execute = async () => {};
+
+  const logs = [];
+  const origLog = console.log;
+  console.log = (...args) => logs.push(args.join(' '));
+
+  await agent.run('test', { maxSteps: 2 });
+
+  console.log = origLog;
+  assert.equal(logs.some(l => l.includes('Step 1')), false, 'should not log step summary by default');
+});
+
+test('Agent.run prints step summary when verbose>=1', async () => {
+  const agent = new Agent({ verbose: 1 });
+  const raw = makeRaw(1, 1);
+  agent._vnc = {
+    width: 1, height: 1,
+    screenshot: async () => encodePNG(1, 1, raw),
+  };
+  agent._screenBuffer = {
+    captureScreen: () => ({ width: 1, height: 1, rgba: raw }),
+    updateCount: 0,
+  };
+  let chatCalls = 0;
+  agent.chat = async () => {
+    chatCalls++;
+    if (chatCalls === 1) return JSON.stringify([{ cmd: 'click', x: 0, y: 0 }]);
+    return JSON.stringify({ done: true, result: 'done' });
+  };
+  agent.execute = async () => {};
+
+  const logs = [];
+  const origLog = console.log;
+  console.log = (...args) => logs.push(args.join(' '));
+
+  await agent.run('test', { maxSteps: 2 });
+
+  console.log = origLog;
+  assert.ok(logs.some(l => l.includes('Step 1')), 'should log step summary when verbose');
+});

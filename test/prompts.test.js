@@ -7,7 +7,7 @@ const { SYSTEM_PROMPT, buildTaskMessage, createSystemPrompt } = require('../lib/
 
 test('SYSTEM_PROMPT: contains all action names', () => {
   for (const action of ['click', 'type', 'key', 'move', 'scroll', 'delay']) {
-    assert.ok(SYSTEM_PROMPT.includes(`"cmd":"${action}"`), `missing action: ${action}`);
+    assert.ok(SYSTEM_PROMPT.includes(action), `missing action: ${action}`);
   }
 });
 

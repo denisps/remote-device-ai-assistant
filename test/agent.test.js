@@ -6,8 +6,8 @@ const assert   = require('node:assert/strict');
 const { parseResponse } = require('../lib/agent');
 
 test('parseResponse: parses a JSON array', () => {
-  const result = parseResponse('[{"cmd":"click","x":100,"y":200}]');
-  assert.deepEqual(result, [{ cmd: 'click', x: 100, y: 200 }]);
+  const result = parseResponse('[{"cmd":"click"}]');
+  assert.deepEqual(result, [{ cmd: 'click' }]);
 });
 
 test('parseResponse: parses a done object', () => {
@@ -33,9 +33,9 @@ test('parseResponse: extracts JSON from plain markdown fence', () => {
 });
 
 test('parseResponse: extracts JSON array embedded in prose', () => {
-  const text   = 'I will click the button: [{"cmd":"click","x":50,"y":50}]';
+  const text   = 'I will click the button: [{"cmd":"click"}]';
   const result = parseResponse(text);
-  assert.deepEqual(result, [{ cmd: 'click', x: 50, y: 50 }]);
+  assert.deepEqual(result, [{ cmd: 'click' }]);
 });
 
 test('parseResponse: extracts JSON object embedded in prose', () => {
@@ -71,10 +71,17 @@ test('parseResponse: handles multiple actions in array', () => {
 
 // ── New: extract JSON from reasoning text ─────────────────────────────────────
 
-test('parseResponse: extracts single action from reasoning text', () => {
-  const text = 'OBSERVE: I see settings.\nPLAN: Click it.\nACT: {"cmd":"click","x":500,"y":250}\nEXPECT: Opens settings.';
+test('parseResponse: handles scroll with h/v fields', () => {
+  const text = 'Scroll down:\n{"cmd":"scroll","v":5}';
   const result = parseResponse(text);
-  assert.deepEqual(result, [{ cmd: 'click', x: 500, y: 250 }]);
+  assert.deepEqual(result, [{ cmd: 'scroll', v: 5 }]);
+});
+
+
+test('parseResponse: extracts single action from reasoning text', () => {
+  const text = 'OBSERVE: I see settings.\nPLAN: Click it.\nACT: {"cmd":"click"}\nEXPECT: Opens settings.';
+  const result = parseResponse(text);
+  assert.deepEqual(result, [{ cmd: 'click' }]);
 });
 
 test('parseResponse: extracts multiple actions from reasoning text', () => {
@@ -90,9 +97,9 @@ test('parseResponse: extracts done signal from reasoning text', () => {
 });
 
 test('parseResponse: prefers fenced code block over inline', () => {
-  const text = 'Here are the actions:\n```json\n[{"cmd":"click","x":10,"y":20}]\n```\nSome text after.';
+  const text = 'Here are the actions:\n```json\n[{"cmd":"click"}]\n```\nSome text after.';
   const result = parseResponse(text);
-  assert.deepEqual(result, [{ cmd: 'click', x: 10, y: 20 }]);
+  assert.deepEqual(result, [{ cmd: 'click' }]);
 });
 
 // ── New tests for VNC efficiency features ─────────────────────────────────

@@ -84,6 +84,10 @@ Return the current framebuffer as a raw RGBA Buffer (width*height*4 bytes).
 No PNG encoding is performed; the result will be `null` until at least one
 update has been received. Useful for cheap change detection or custom encoding.
 
+> **Note:** `Agent.run()` now treats a `null` result as a fatal error and
+> will immediately reject with an exception. Previously it silently substituted
+> an empty buffer which masked connection problems during tests.
+
 
 
 ---

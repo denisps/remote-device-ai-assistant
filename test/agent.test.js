@@ -212,3 +212,18 @@ test('Agent.run invokes onStep for each step with actions', async () => {
   assert.equal(steps[0].s, 1);
   assert.deepEqual(steps[0].actions, [{ cmd: 'click', x: 0, y: 0 }]);
 });
+
+// new behaviour: fail early when no screenshot is available
+
+test('Agent.run throws if screenshotRaw returns null', async () => {
+  const agent = new Agent();
+  // stub screenshotRaw to simulate a fatal VNC failure
+  agent.screenshotRaw = async () => null;
+  agent._vnc = { width: 1, height: 1 };
+  agent._screenBuffer = null;
+  agent.chat = async () => { throw new Error('chat should not be called'); };
+  await assert.rejects(
+    agent.run('whatever'),
+    /Unable to capture screenshot/,
+  );
+});

@@ -154,6 +154,56 @@ test('Agent.screenshotRaw falls back to decoding PNG when no raw buffer', async 
   assert.deepEqual(r, { width: 2, height: 1, rgba: raw });
 });
 
+test('Agent.prepareImage works with RGBA and returns RGBA', () => {
+  const agent = new Agent({ maxImageWidth: 0 }); // no resize
+  agent._vnc = { width: 4, height: 2 };
+  agent._mouseX = 1;
+  agent._mouseY = 1;
+  
+  const raw = makeRaw(4, 2, 128);
+  const result = agent.prepareImage(raw);
+  
+  assert.equal(result.imgW, 4);
+  assert.equal(result.imgH, 2);
+  assert.equal(result.rgba.length, 4 * 2 * 4, 'should return RGBA buffer');
+  assert.ok(result.rgba instanceof Buffer);
+});
+
+test('Agent.prepareImage throws if given wrong size buffer', () => {
+  const agent = new Agent();
+  agent._vnc = { width: 10, height: 10 };
+  agent._mouseX = 0;
+  agent._mouseY = 0;
+  
+  const wrongSize = Buffer.alloc(50); // should be 10*10*4 = 400
+  assert.throws(
+    () => agent.prepareImage(wrongSize),
+    /expects raw RGBA buffer/
+  );
+});
+
+test('Agent.buildMessages encodes RGBA to PNG for AI', () => {
+  const agent = new Agent();
+  const img = {
+    rgba: makeRaw(2, 1),
+    imgW: 2,
+    imgH: 1,
+    isNorm: false,
+  };
+  
+  const messages = agent.buildMessages('test task', 1, [], img);
+  assert.equal(messages.length, 2);
+  assert.equal(messages[0].role, 'system');
+  assert.equal(messages[1].role, 'user');
+  
+  // Verify the image content part contains a PNG data URL
+  const content = messages[1].content;
+  assert.ok(Array.isArray(content));
+  const imagePart = content.find(p => p.type === 'image_url');
+  assert.ok(imagePart, 'should have image_url part');
+  assert.ok(imagePart.image_url.url.startsWith('data:image/png;base64,'));
+});
+
 test('Agent.waitForScreenChange returns quickly when updateCount moves and never screenshots', async () => {
   const agent = new Agent();
   let called = 0;

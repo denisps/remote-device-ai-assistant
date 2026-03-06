@@ -125,6 +125,21 @@ test('Agent.screenshotRaw returns underlying framebuffer when available', async 
   assert.deepEqual(r, { width: 2, height: 1, rgba: rawBuf });
 });
 
+// new behaviour: captureStepScreenshot no longer performs any I/O
+
+test('Agent.captureStepScreenshot returns raw buffer and does not save', async () => {
+  const agent = new Agent();
+  // stub screenshotRaw to return a known buffer
+  const fake = { width: 1, height: 1, rgba: Buffer.from([42]) };
+  agent.screenshotRaw = async () => fake;
+  let saved = false;
+  agent.saveScreenshot = () => { saved = true; };
+
+  const buf = await agent.captureStepScreenshot(7);
+  assert.deepEqual(buf, fake.rgba);
+  assert.equal(saved, false, 'should not call saveScreenshot');
+});
+
 test('Agent.screenshotRaw falls back to decoding PNG when no raw buffer', async () => {
   const agent = new Agent();
   const raw = makeRaw(2,1);

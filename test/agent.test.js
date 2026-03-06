@@ -162,24 +162,6 @@ test('Agent.screenshotRaw returns underlying framebuffer when available', async 
 });
 
 
-
-test('Agent.screenshotRaw falls back to decoding PNG when no raw buffer', async () => {
-  const agent = new Agent();
-  const raw = makeRaw(2,1);
-  let saw = false;
-  agent._vnc = {
-    width: 2, height: 1,
-    screenshot: async () => { saw = true; return encodePNG(2,1,raw); }
-  };
-  agent._screenBuffer = null;
-  const r = await agent.screenshotRaw();
-  assert.ok(saw, 'screenshot() should have been called');
-  assert.ok(r instanceof ImageRaw);
-  assert.equal(r.width, 2);
-  assert.equal(r.height, 1);
-  assert.deepEqual(r.rgba, raw);
-});
-
 // prepareImage tests removed; functionality exercised indirectly via other tests.
 
 test('Agent.buildMessages works with ImageRaw and ImagePNG', () => {

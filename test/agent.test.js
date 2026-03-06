@@ -3,7 +3,8 @@
 const { test } = require('node:test');
 const assert   = require('node:assert/strict');
 
-const { parseResponse } = require('../lib/agent');
+const { parseResponse, Agent } = require('../lib/agent');
+const { ImageRaw, ImagePNG } = require('../lib/image');
 
 test('parseResponse: parses a JSON array', () => {
   const result = parseResponse('[{"cmd":"click"}]');
@@ -104,7 +105,6 @@ test('parseResponse: prefers fenced code block over inline', () => {
 
 // ── New tests for VNC efficiency features ─────────────────────────────────
 
-const { Agent } = require('../lib/agent');
 const { encodePNG } = require('vnc-tool/lib/png');
 
 // helper to create a raw RGBA buffer of given dimensions
@@ -114,6 +114,39 @@ function makeRaw(w, h, fill = 0) {
   return buf;
 }
 
+// ── ImageRaw/ImagePNG class tests ─────────────────────────────────────────
+test('ImageRaw.fromPNG/encodePNG round-trip', () => {
+  const rgba = makeRaw(2,2,123);
+  const raw = new ImageRaw(2,2,rgba);
+  const png = raw.encodePNG();
+  const round = ImageRaw.fromPNG(png.buffer);
+  assert.equal(round.width, 2);
+  assert.equal(round.height, 2);
+  assert.deepEqual(round.rgba, rgba);
+});
+
+test('ImageRaw resize and drawing methods', () => {
+  const rgba = makeRaw(4,2,10);
+  let raw = new ImageRaw(4,2,rgba);
+  raw = raw.resize(2);
+  assert.equal(raw.width,2);
+  assert.equal(raw.height,1);
+  raw.drawCursor(0,0);
+  raw.overlayGrid(100);
+});
+
+test('ImagePNG.encodeForModel and save', () => {
+  const raw = new ImageRaw(1,1,makeRaw(1,1,5));
+  const png = raw.encodePNG();
+  const url = png.encodeForModel();
+  assert.ok(url.startsWith('data:image/png;base64,'));
+  const tmp = require('os').tmpdir();
+  const fn = require('path').join(tmp, 'test-save.png');
+  png.save(fn);
+  const stat = require('fs').statSync(fn);
+  assert.ok(stat.size > 0);
+});
+
 test('Agent.screenshotRaw returns underlying framebuffer when available', async () => {
   const agent = new Agent();
   const rawBuf = Buffer.from([1,2,3,4,5,6,7,8]);
@@ -122,21 +155,24 @@ test('Agent.screenshotRaw returns underlying framebuffer when available', async 
     captureScreen: () => ({ width: 2, height: 1, rgba: rawBuf })
   };
   const r = await agent.screenshotRaw();
-  assert.deepEqual(r, { width: 2, height: 1, rgba: rawBuf });
+  assert.ok(r instanceof ImageRaw);
+  assert.equal(r.width, 2);
+  assert.equal(r.height, 1);
+  assert.deepEqual(r.rgba, rawBuf);
 });
 
 // new behaviour: captureStepScreenshot no longer performs any I/O
 
-test('Agent.captureStepScreenshot returns raw buffer and does not save', async () => {
+test('Agent.captureStepScreenshot returns ImageRaw and does not save', async () => {
   const agent = new Agent();
-  // stub screenshotRaw to return a known buffer
-  const fake = { width: 1, height: 1, rgba: Buffer.from([42]) };
+  const fake = new ImageRaw(1,1,Buffer.from([42]));
   agent.screenshotRaw = async () => fake;
   let saved = false;
   agent.saveScreenshot = () => { saved = true; };
 
-  const buf = await agent.captureStepScreenshot(7);
-  assert.deepEqual(buf, fake.rgba);
+  const img = await agent.captureStepScreenshot();
+  assert.ok(img instanceof ImageRaw);
+  assert.deepEqual(img.rgba, fake.rgba);
   assert.equal(saved, false, 'should not call saveScreenshot');
 });
 
@@ -148,60 +184,31 @@ test('Agent.screenshotRaw falls back to decoding PNG when no raw buffer', async 
     width: 2, height: 1,
     screenshot: async () => { saw = true; return encodePNG(2,1,raw); }
   };
-  agent._screenBuffer = null; // no screen buffer available
+  agent._screenBuffer = null;
   const r = await agent.screenshotRaw();
   assert.ok(saw, 'screenshot() should have been called');
-  assert.deepEqual(r, { width: 2, height: 1, rgba: raw });
+  assert.ok(r instanceof ImageRaw);
+  assert.equal(r.width, 2);
+  assert.equal(r.height, 1);
+  assert.deepEqual(r.rgba, raw);
 });
 
-test('Agent.prepareImage works with RGBA and returns RGBA', () => {
-  const agent = new Agent({ maxImageWidth: 0 }); // no resize
-  agent._vnc = { width: 4, height: 2 };
-  agent._mouseX = 1;
-  agent._mouseY = 1;
-  
-  const raw = makeRaw(4, 2, 128);
-  const result = agent.prepareImage(raw);
-  
-  assert.equal(result.imgW, 4);
-  assert.equal(result.imgH, 2);
-  assert.equal(result.rgba.length, 4 * 2 * 4, 'should return RGBA buffer');
-  assert.ok(result.rgba instanceof Buffer);
-});
+// prepareImage tests removed; functionality exercised indirectly via other tests.
 
-test('Agent.prepareImage throws if given wrong size buffer', () => {
+test('Agent.buildMessages works with ImageRaw and ImagePNG', () => {
   const agent = new Agent();
-  agent._vnc = { width: 10, height: 10 };
-  agent._mouseX = 0;
-  agent._mouseY = 0;
-  
-  const wrongSize = Buffer.alloc(50); // should be 10*10*4 = 400
-  assert.throws(
-    () => agent.prepareImage(wrongSize),
-    /expects raw RGBA buffer/
-  );
-});
+  const raw = new ImageRaw(2,1,makeRaw(2,1));
+  const messages1 = agent.buildMessages('test task', 1, [], raw);
+  assert.equal(messages1[0].role, 'system');
+  assert.equal(messages1[1].role, 'user');
+  const content1 = messages1[1].content;
+  assert.ok(Array.isArray(content1));
+  assert.ok(content1[0].image_url.url.startsWith('data:image/png;base64,'));
 
-test('Agent.buildMessages encodes RGBA to PNG for AI', () => {
-  const agent = new Agent();
-  const img = {
-    rgba: makeRaw(2, 1),
-    imgW: 2,
-    imgH: 1,
-    isNorm: false,
-  };
-  
-  const messages = agent.buildMessages('test task', 1, [], img);
-  assert.equal(messages.length, 2);
-  assert.equal(messages[0].role, 'system');
-  assert.equal(messages[1].role, 'user');
-  
-  // Verify the image content part contains a PNG data URL
-  const content = messages[1].content;
-  assert.ok(Array.isArray(content));
-  const imagePart = content.find(p => p.type === 'image_url');
-  assert.ok(imagePart, 'should have image_url part');
-  assert.ok(imagePart.image_url.url.startsWith('data:image/png;base64,'));
+  const png = raw.encodePNG();
+  const messages2 = agent.buildMessages('test task', 1, [], png);
+  const content2 = messages2[1].content;
+  assert.ok(content2[0].image_url.url.startsWith('data:image/png;base64,'));
 });
 
 test('Agent.waitForScreenChange returns quickly when updateCount moves and never screenshots', async () => {

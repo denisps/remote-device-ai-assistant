@@ -135,26 +135,26 @@ test('ImageRaw resize and drawing methods', () => {
   raw.overlayGrid(100);
 });
 
-test('ImagePNG.encodeForModel and save', () => {
+test('ImagePNG.encodeForModel and save', async () => {
   const raw = new ImageRaw(1,1,makeRaw(1,1,5));
   const png = raw.encodePNG();
   const url = png.encodeForModel();
   assert.ok(url.startsWith('data:image/png;base64,'));
   const tmp = require('os').tmpdir();
   const fn = require('path').join(tmp, 'test-save.png');
-  png.save(fn);
+  await png.save(fn);
   const stat = require('fs').statSync(fn);
   assert.ok(stat.size > 0);
 });
 
-test('Agent.screenshotRaw returns underlying framebuffer when available', async () => {
+test('Agent.screenshotRaw returns underlying framebuffer when available', () => {
   const agent = new Agent();
   const rawBuf = Buffer.from([1,2,3,4,5,6,7,8]);
   agent._vnc = { width: 2, height: 1 };
   agent._screenBuffer = {
     captureScreen: () => ({ width: 2, height: 1, rgba: rawBuf })
   };
-  const r = await agent.screenshotRaw();
+  const r = agent.screenshotRaw();
   assert.ok(r instanceof ImageRaw);
   assert.equal(r.width, 2);
   assert.equal(r.height, 1);
@@ -209,6 +209,35 @@ test('Agent.waitForScreenChange times out and returns false when no updates', as
 });
 
 // ── Agent.run behaviour tests ────────────────────────────────────────────────
+
+// verify that screenshots are saved when screenshotDir is enabled and that
+// the asynchronous writes don't interfere with the main loop.
+
+test('Agent.run saves screenshots asynchronously when screenshotDir is set', async () => {
+  const agent = new Agent({ screenshotDir: require('os').tmpdir() });
+  const raw = makeRaw(1, 1);
+  agent._vnc = {
+    width: 1, height: 1,
+    screenshot: async () => encodePNG(1, 1, raw),
+  };
+  agent._screenBuffer = {
+    captureScreen: () => ({ width: 1, height: 1, rgba: raw }),
+    updateCount: 0,
+  };
+  let chatCalls = 0;
+  agent.chat = async () => {
+    chatCalls++;
+    if (chatCalls === 1) return JSON.stringify([{ cmd: 'click', x: 0, y: 0 }]);
+    return JSON.stringify({ done: true, result: 'done' });
+  };
+  agent.execute = async () => {};
+
+  const res = await agent.run('test', { maxSteps: 2 });
+  assert.equal(res.result, 'done');
+  // ensure at least one file has been written to the temporary directory
+  const files = require('fs').readdirSync(agent._screenshotDir);
+  assert.ok(files.some(f => f.includes('step-1')));
+});
 
 test('Agent.run stops when AI signals done and returns result', async () => {
   const agent = new Agent();
@@ -265,14 +294,25 @@ test('Agent.run invokes onStep for each step with actions', async () => {
 
 test('Agent.run throws if screenshotRaw returns null', async () => {
   const agent = new Agent();
-  // stub screenshotRaw to simulate a fatal VNC failure
-  agent.screenshotRaw = async () => null;
+  // provide a dummy buffer so _ensureConnected passes
   agent._vnc = { width: 1, height: 1 };
-  agent._screenBuffer = null;
+  agent._screenBuffer = { captureScreen: () => ({ width: 1, height: 1, rgba: Buffer.alloc(4) }) };
+  // stub screenshotRaw to simulate a fatal VNC failure
+  agent.screenshotRaw = () => null;
   agent.chat = async () => { throw new Error('chat should not be called'); };
   await assert.rejects(
     agent.run('whatever'),
     /Unable to capture screenshot/,
+  );
+});
+
+// ensure run detects completely unconnected state before trying anything
+
+test('Agent.run throws if called before connect()', async () => {
+  const agent = new Agent();
+  await assert.rejects(
+    agent.run('task'),
+    /Agent is not connected/, // message from _ensureConnected
   );
 });
 

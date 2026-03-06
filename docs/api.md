@@ -80,9 +80,12 @@ CLI and exposes several hooks for programmatic use.
 
 #### `screenshotRaw()` → `{width, height, rgba}` | `null`
 
-Return the current framebuffer as a raw RGBA Buffer (width*height*4 bytes).
-No PNG encoding is performed; the result will be `null` until at least one
-update has been received. Useful for cheap change detection or custom encoding.
+Synchronously return the current framebuffer as a raw RGBA Buffer
+(width*height*4 bytes). No PNG encoding is performed; the result will be
+`null` until at least one update has been received. Useful for cheap change
+detection or custom encoding. Because the call is synchronous callers can
+perform other work (such as kicking off an async PNG save) without awaiting
+this method.
 
 > **Note:** `Agent.run()` now treats a `null` result as a fatal error and
 > will immediately reject with an exception. Previously it silently substituted

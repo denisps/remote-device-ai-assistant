@@ -136,31 +136,6 @@ test('AIClient: chat() throws when response has no choices', async () => {
   }
 });
 
-test('AIClient: buildImageMessage() returns correct structure', () => {
-  const client = new AIClient({ baseUrl: 'http://localhost/v1' });
-  const buf    = Buffer.from('fake-png-data');
-  const msg    = client.buildImageMessage(buf, 'what is this?');
-
-  assert.equal(msg.role, 'user');
-  assert.ok(Array.isArray(msg.content));
-
-  const imgPart = msg.content.find((p) => p.type === 'image_url');
-  assert.ok(imgPart, 'should have an image_url part');
-  assert.ok(imgPart.image_url.url.startsWith('data:image/png;base64,'));
-  assert.equal(imgPart.image_url.url.slice('data:image/png;base64,'.length),
-               buf.toString('base64'));
-
-  const textPart = msg.content.find((p) => p.type === 'text');
-  assert.ok(textPart, 'should have a text part');
-  assert.equal(textPart.text, 'what is this?');
-});
-
-test('AIClient: buildImageMessage() without text omits text part', () => {
-  const client = new AIClient({ baseUrl: 'http://localhost/v1' });
-  const msg    = client.buildImageMessage(Buffer.from('x'));
-  assert.equal(msg.content.length, 1);
-  assert.equal(msg.content[0].type, 'image_url');
-});
 
 test('AIClient: chat() sends tools array when provided', async () => {
   let captured;

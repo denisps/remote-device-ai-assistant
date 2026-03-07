@@ -164,21 +164,7 @@ test('Agent.screenshotRaw returns underlying framebuffer when available', () => 
 
 // prepareImage tests removed; functionality exercised indirectly via other tests.
 
-test('Agent.buildMessages works with ImageRaw and ImagePNG', () => {
-  const agent = new Agent();
-  const raw = new ImageRaw(2,1,makeRaw(2,1));
-  const messages1 = agent.buildMessages('test task', 1, [], raw);
-  assert.equal(messages1[0].role, 'system');
-  assert.equal(messages1[1].role, 'user');
-  const content1 = messages1[1].content;
-  assert.ok(Array.isArray(content1));
-  assert.ok(content1[0].image_url.url.startsWith('data:image/png;base64,'));
 
-  const png = raw.encodePNG();
-  const messages2 = agent.buildMessages('test task', 1, [], png);
-  const content2 = messages2[1].content;
-  assert.ok(content2[0].image_url.url.startsWith('data:image/png;base64,'));
-});
 
 test('Agent.waitForScreenChange returns quickly when updateCount moves and never screenshots', async () => {
   const agent = new Agent();
@@ -209,6 +195,35 @@ test('Agent.waitForScreenChange times out and returns false when no updates', as
 });
 
 // ── Agent.run behaviour tests ────────────────────────────────────────────────
+
+// verify that the run loop passes the correct messages to chat
+
+test('Agent.run sends system+user messages with task text to chat', async () => {
+  const agent = new Agent();
+  const raw = makeRaw(1, 1);
+  agent._vnc = {
+    width: 1, height: 1,
+    screenshot: async () => encodePNG(1, 1, raw),
+  };
+  agent._screenBuffer = {
+    captureScreen: () => ({ width: 1, height: 1, rgba: raw }),
+    updateCount: 0,
+  };
+  let captured;
+  agent.chat = async (messages) => {
+    captured = messages;
+    return JSON.stringify({ done: true, result: 'done' });
+  };
+  agent.execute = async () => {};
+
+  await agent.run('hello world', { maxSteps: 1 });
+  assert.ok(captured, 'chat should have been called');
+  assert.equal(captured[0].role, 'system');
+  assert.equal(captured[1].role, 'user');
+  const userContent = captured[1].content;
+  assert.ok(Array.isArray(userContent));
+  assert.ok(userContent.some(p => p.type === 'text' && p.text.includes('hello world')));
+});
 
 // verify that screenshots are saved when screenshotDir is enabled and that
 // the asynchronous writes don't interfere with the main loop.

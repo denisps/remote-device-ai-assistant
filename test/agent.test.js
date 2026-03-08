@@ -210,7 +210,7 @@ test('Agent.run sends system+user messages with task text to chat', async () => 
     updateCount: 0,
   };
   let captured;
-  agent.chat = async (messages) => {
+  agent._ai.chat = async (messages) => {
     captured = messages;
     return JSON.stringify({ done: true, result: 'done' });
   };
@@ -240,7 +240,7 @@ test('Agent.run saves screenshots asynchronously when screenshotDir is set', asy
     updateCount: 0,
   };
   let chatCalls = 0;
-  agent.chat = async () => {
+  agent._ai.chat = async () => {
     chatCalls++;
     if (chatCalls === 1) return JSON.stringify([{ cmd: 'click', x: 0, y: 0 }]);
     return JSON.stringify({ done: true, result: 'done' });
@@ -266,7 +266,7 @@ test('Agent.run stops when AI signals done and returns result', async () => {
     updateCount: 0,
   };
   let chatCalls = 0;
-  agent.chat = async () => {
+  agent._ai.chat = async () => {
     chatCalls++;
     return JSON.stringify({ done: true, result: 'completed' });
   };
@@ -290,7 +290,7 @@ test('Agent.run invokes onStep for each step with actions', async () => {
   };
   // first call returns an action, second call signals done
   let chatCalls = 0;
-  agent.chat = async () => {
+  agent._ai.chat = async () => {
     chatCalls++;
     if (chatCalls === 1) return JSON.stringify([{ cmd: 'click', x: 0, y: 0 }]);
     return JSON.stringify({ done: true, result: 'done' });
@@ -314,7 +314,7 @@ test('Agent.run throws if screenshotRaw returns null', async () => {
   agent._screenBuffer = { captureScreen: () => ({ width: 1, height: 1, rgba: Buffer.alloc(4) }) };
   // stub screenshotRaw to simulate a fatal VNC failure
   agent.screenshotRaw = () => null;
-  agent.chat = async () => { throw new Error('chat should not be called'); };
+  agent._ai.chat = async () => { throw new Error('chat should not be called'); };
   await assert.rejects(
     agent.run('whatever'),
     /Unable to capture screenshot/,
@@ -345,7 +345,7 @@ test('Agent.run does not print step summary when verbose=0', async () => {
     updateCount: 0,
   };
   let chatCalls = 0;
-  agent.chat = async () => {
+  agent._ai.chat = async () => {
     chatCalls++;
     if (chatCalls === 1) return JSON.stringify([{ cmd: 'click', x: 0, y: 0 }]);
     return JSON.stringify({ done: true, result: 'done' });
@@ -374,7 +374,7 @@ test('Agent.run prints step summary when verbose>=1', async () => {
     updateCount: 0,
   };
   let chatCalls = 0;
-  agent.chat = async () => {
+  agent._ai.chat = async () => {
     chatCalls++;
     if (chatCalls === 1) return JSON.stringify([{ cmd: 'click', x: 0, y: 0 }]);
     return JSON.stringify({ done: true, result: 'done' });

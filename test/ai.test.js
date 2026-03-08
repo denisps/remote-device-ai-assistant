@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert   = require('node:assert/strict');
 const http     = require('http');
 
-const { AIClient } = require('../lib/ai');
+const { AIClient, AIChat } = require('../lib/ai');
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -186,4 +186,154 @@ test('AIClient: chat() with raw=true returns the full message object', async () 
   } finally {
     await stopServer(server);
   }
+});
+
+// ── AIChat tests ─────────────────────────────────────────────────────────────
+
+test('AIChat: newChat() returns an AIChat instance', () => {
+  const client = new AIClient();
+  const chat   = client.newChat();
+  assert.ok(chat instanceof AIChat);
+});
+
+test('AIChat: systemText appends a system message to history', () => {
+  const client = new AIClient();
+  const chat   = client.newChat();
+  chat.systemText('You are a bot.');
+  assert.equal(chat._history.length, 1);
+  assert.equal(chat._history[0].role, 'system');
+  assert.equal(chat._history[0].content, 'You are a bot.');
+});
+
+test('AIChat: userText stages a text part', () => {
+  const client = new AIClient();
+  const chat   = client.newChat();
+  chat.userText('hello');
+  assert.equal(chat._pending.length, 1);
+  assert.equal(chat._pending[0].type, 'text');
+  assert.equal(chat._pending[0].text, 'hello');
+});
+
+test('AIChat: userImage stages an image_url part as base64 data URL', () => {
+  const client = new AIClient();
+  const chat   = client.newChat();
+  const buf    = Buffer.from([137, 80, 78, 71]); // fake PNG header bytes
+  chat.userImage(buf, 'image/png');
+  assert.equal(chat._pending.length, 1);
+  assert.equal(chat._pending[0].type, 'image_url');
+  const url = chat._pending[0].image_url.url;
+  assert.ok(url.startsWith('data:image/png;base64,'), 'should be a png data URL');
+  assert.equal(url, `data:image/png;base64,${buf.toString('base64')}`);
+});
+
+test('AIChat: send() flushes pending as user message and appends assistant reply', async () => {
+  const { server, port } = await startMockServer((req, res) => {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(okResponse('reply text'));
+    });
+  });
+
+  try {
+    const client = new AIClient({ baseUrl: `http://127.0.0.1:${port}/v1` });
+    const chat   = client.newChat();
+    chat.systemText('sys');
+    chat.userText('question');
+
+    const reply = await chat.send();
+    assert.equal(reply, 'reply text');
+
+    // history should now be: system + user + assistant
+    assert.equal(chat._history.length, 3);
+    assert.equal(chat._history[1].role, 'user');
+    assert.equal(chat._history[1].content, 'question'); // sole text → plain string
+    assert.equal(chat._history[2].role, 'assistant');
+    assert.equal(chat._history[2].content, 'reply text');
+
+    // pending should be cleared
+    assert.equal(chat._pending.length, 0);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test('AIChat: send() with image uses multipart array content', async () => {
+  let captured;
+  const { server, port } = await startMockServer((req, res) => {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', () => {
+      captured = JSON.parse(body);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(okResponse('ok'));
+    });
+  });
+
+  try {
+    const client = new AIClient({ baseUrl: `http://127.0.0.1:${port}/v1` });
+    const chat   = client.newChat();
+    const buf    = Buffer.from('fake-png');
+    chat.userImage(buf, 'image/png');
+    chat.userText('describe it');
+    await chat.send();
+
+    const userMsg = captured.messages.find(m => m.role === 'user');
+    assert.ok(Array.isArray(userMsg.content), 'multipart content should be an array');
+    assert.ok(userMsg.content.some(p => p.type === 'image_url'), 'should include image_url part');
+    assert.ok(userMsg.content.some(p => p.type === 'text' && p.text === 'describe it'));
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test('AIChat: send() throws if nothing is staged', async () => {
+  const client = new AIClient();
+  const chat   = client.newChat();
+  await assert.rejects(chat.send(), /no pending user content/);
+});
+
+test('AIChat: multi-turn conversation sends full history each time', async () => {
+  let callCount = 0;
+  let lastMessages;
+  const { server, port } = await startMockServer((req, res) => {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', () => {
+      callCount++;
+      lastMessages = JSON.parse(body).messages;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(okResponse(`turn ${callCount}`));
+    });
+  });
+
+  try {
+    const client = new AIClient({ baseUrl: `http://127.0.0.1:${port}/v1` });
+    const chat   = client.newChat();
+    chat.systemText('sys');
+
+    chat.userText('first');
+    await chat.send();
+
+    chat.userText('second');
+    await chat.send();
+
+    assert.equal(callCount, 2);
+    // second call should have: system + user1 + assistant1 + user2 = 4 messages
+    assert.equal(lastMessages.length, 4);
+    assert.equal(lastMessages[0].role, 'system');
+    assert.equal(lastMessages[1].role, 'user');
+    assert.equal(lastMessages[2].role, 'assistant');
+    assert.equal(lastMessages[3].role, 'user');
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test('AIChat: chaining methods returns the same instance', () => {
+  const client = new AIClient();
+  const chat   = client.newChat();
+  const result = chat.systemText('s').userText('u');
+  assert.strictEqual(result, chat, 'methods should return `this` for chaining');
 });

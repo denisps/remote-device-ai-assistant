@@ -135,29 +135,27 @@ test('ImageRaw resize and drawing methods', () => {
   raw.overlayGrid(100);
 });
 
-// zoom should crop a region and upscale it 4x
-test('ImageRaw.zoom crops and upscales region', () => {
-  // create a 2x2 image with distinct colors per pixel
-  const buf = Buffer.alloc(2 * 2 * 4);
-  // top-left red, top-right green, bottom-left blue, bottom-right white
-  buf[0] = 255; buf[1] = 0; buf[2] = 0; buf[3] = 255; // (0,0)
-  buf[4] = 0; buf[5] = 255; buf[6] = 0; buf[7] = 255; // (1,0)
-  buf[8] = 0; buf[9] = 0; buf[10] = 255; buf[11] = 255; // (0,1)
-  buf[12] = 255; buf[13] = 255; buf[14] = 255; buf[15] = 255; // (1,1)
-  const raw = new ImageRaw(2,2,buf);
+// zoom should simply crop the specified region without scaling
+ test('ImageRaw.zoom crops region', () => {
+   // create a 2x2 image with distinct colors per pixel
+   const buf = Buffer.alloc(2 * 2 * 4);
+   // top-left red, top-right green, bottom-left blue, bottom-right white
+   buf[0] = 255; buf[1] = 0; buf[2] = 0; buf[3] = 255; // (0,0)
+   buf[4] = 0; buf[5] = 255; buf[6] = 0; buf[7] = 255; // (1,0)
+   buf[8] = 0; buf[9] = 0; buf[10] = 255; buf[11] = 255; // (0,1)
+   buf[12] = 255; buf[13] = 255; buf[14] = 255; buf[15] = 255; // (1,1)
+   const raw = new ImageRaw(2,2,buf);
 
-  // zoom the top-left pixel only (region 0,0 to 1,1)
-  const zoomed = raw.zoom(0,0,1,1);
-  assert.equal(zoomed.width, 4);
-  assert.equal(zoomed.height, 4);
-  // all pixels should equal the original top-left color (red)
-  for (let i = 0; i < zoomed.rgba.length; i += 4) {
-    assert.equal(zoomed.rgba[i], 255);
-    assert.equal(zoomed.rgba[i+1], 0);
-    assert.equal(zoomed.rgba[i+2], 0);
-    assert.equal(zoomed.rgba[i+3], 255);
-  }
-});
+   // crop the top-left pixel only (region 0,0 to 1,1)
+   const zoomed = raw.zoom(0,0,1,1);
+   assert.equal(zoomed.width, 1);
+   assert.equal(zoomed.height, 1);
+   // pixel should equal the original top-left color (red)
+   assert.equal(zoomed.rgba[0], 255);
+   assert.equal(zoomed.rgba[1], 0);
+   assert.equal(zoomed.rgba[2], 0);
+   assert.equal(zoomed.rgba[3], 255);
+ });
 
 test('ImagePNG.encodeForModel and save', async () => {
   const raw = new ImageRaw(1,1,makeRaw(1,1,5));

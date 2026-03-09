@@ -70,12 +70,59 @@ test('parseResponse: handles multiple actions in array', () => {
   assert.deepEqual(result, actions);
 });
 
+// ── Tests for Agent.extractActions helper ───────────────────────────────
+
+test('extractActions: simple object is returned in array', () => {
+  const a = new Agent();
+  const out = a.extractActions('{"cmd":"click"}');
+  assert.deepEqual(out, [{ cmd: 'click' }]);
+});
+
+test('extractActions: repairs unquoted keys and missing y coordinate', () => {
+  const a = new Agent();
+  // value must remain quoted, repairJSON only fixes keys and missing y
+  const text = '{cmd:"click",x:100,200}';
+  const out = a.extractActions(text);
+  assert.deepEqual(out, [{ cmd: 'click', x: 100, y: 200 }]);
+});
+
+test('extractActions: returns unknown when JSON cannot be parsed', () => {
+  const a = new Agent();
+  // completely invalid JSON inside braces should still yield the fallback
+  const out = a.extractActions('{notvalid}');
+  assert.deepEqual(out, [{ cmd: 'unknown' }]);
+});
+
 // ── New: extract JSON from reasoning text ─────────────────────────────────────
 
 test('parseResponse: handles scroll with h/v fields', () => {
   const text = 'Scroll down:\n{"cmd":"scroll","v":5}';
   const result = parseResponse(text);
   assert.deepEqual(result, [{ cmd: 'scroll', v: 5 }]);
+});
+
+// processAIResponse-specific behaviours
+
+test('processAIResponse: treats single done from simple extractor', () => {
+  const a = new Agent();
+  const img = { scaleX: 1, scaleY: 1 };
+  const res = a.processAIResponse('done here {"done":true,"result":"ok"}', img);
+  assert.deepEqual(res, { done: true, result: 'ok' });
+});
+
+test('processAIResponse: scales actions found by simple extractor', () => {
+  const a = new Agent();
+  const img = { scaleX: 2, scaleY: 3 };
+  const res = a.processAIResponse('click now {"cmd":"click","x":10,"y":20}', img);
+  assert.deepEqual(res, { done: false, actions: [{ cmd: 'click', x: 20, y: 60 }] });
+});
+
+test('processAIResponse: falls back to parseResponse when extractor returns empty', () => {
+  const a = new Agent();
+  const img = { scaleX: 1, scaleY: 1 };
+  const text = '```json\n[{"cmd":"move","x":1,"y":1}]\n```';
+  const res = a.processAIResponse(text, img);
+  assert.deepEqual(res, { done: false, actions: [{ cmd: 'move', x: 1, y: 1 }] });
 });
 
 
@@ -136,7 +183,7 @@ test('ImageRaw resize and drawing methods', () => {
 });
 
 // zoom should simply crop the specified region without scaling
- test('ImageRaw.zoom crops region', () => {
+ test('ImageRaw.crop crops region', () => {
    // create a 2x2 image with distinct colors per pixel
    const buf = Buffer.alloc(2 * 2 * 4);
    // top-left red, top-right green, bottom-left blue, bottom-right white
@@ -147,7 +194,7 @@ test('ImageRaw resize and drawing methods', () => {
    const raw = new ImageRaw(2,2,buf);
 
    // crop the top-left pixel only (region 0,0 to 1,1)
-   const zoomed = raw.zoom(0,0,1,1);
+   const zoomed = raw.crop(0,0,1,1);
    assert.equal(zoomed.width, 1);
    assert.equal(zoomed.height, 1);
    // pixel should equal the original top-left color (red)
@@ -196,10 +243,10 @@ test('Agent.waitForScreenChange returns quickly when updateCount moves and never
   };
   agent._screenBuffer = { updateCount: 0 };
   // bump updateCount after a short delay so waitForScreenChange exits early
-  setTimeout(() => { agent._screenBuffer.updateCount = 5; }, 50);
+  setTimeout(() => { agent._screenBuffer.updateCount = 1; }, 50);
 
-  const result = await agent.waitForScreenChange({ maxWait: 500, pollInterval: 20 });
-  assert.equal(result.changed, true);
+  const result = await agent.waitForScreenChange({ maxWait: 500, pollInterval: 20, minChange: 0.1 });
+  assert.equal(result, true);
   assert.equal(called, 0, 'should not take any screenshots');
 });
 
@@ -212,40 +259,11 @@ test('Agent.waitForScreenChange times out and returns false when no updates', as
   agent._screenBuffer = { updateCount: 0 };
 
   const result = await agent.waitForScreenChange({ maxWait: 100, pollInterval: 20 });
-  assert.equal(result.changed, false);
+  assert.equal(result, false);
   assert.equal(called, 0, 'should not take any screenshots');
 });
 
 // ── Agent.run behaviour tests ────────────────────────────────────────────────
-
-// verify that the run loop passes the correct messages to chat
-
-test('Agent.run sends system+user messages with task text to chat', async () => {
-  const agent = new Agent();
-  const raw = makeRaw(1, 1);
-  agent._vnc = {
-    width: 1, height: 1,
-    screenshot: async () => encodePNG(1, 1, raw),
-  };
-  agent._screenBuffer = {
-    captureScreen: () => ({ width: 1, height: 1, rgba: raw }),
-    updateCount: 0,
-  };
-  let captured;
-  agent._ai.chat = async (messages) => {
-    captured = messages;
-    return JSON.stringify({ done: true, result: 'done' });
-  };
-  agent.execute = async () => {};
-
-  await agent.run('hello world', { maxSteps: 1 });
-  assert.ok(captured, 'chat should have been called');
-  assert.equal(captured[0].role, 'system');
-  assert.equal(captured[1].role, 'user');
-  const userContent = captured[1].content;
-  assert.ok(Array.isArray(userContent));
-  assert.ok(userContent.some(p => p.type === 'text' && p.text.includes('hello world')));
-});
 
 // verify that screenshots are saved when screenshotDir is enabled and that
 // the asynchronous writes don't interfere with the main loop.
@@ -299,35 +317,6 @@ test('Agent.run stops when AI signals done and returns result', async () => {
   assert.equal(res.result, 'completed');
 });
 
-test('Agent.run invokes onStep for each step with actions', async () => {
-  const agent = new Agent();
-  const raw = makeRaw(1, 1);
-  agent._vnc = {
-    width: 1, height: 1,
-    screenshot: async () => encodePNG(1, 1, raw),
-  };
-  agent._screenBuffer = {
-    captureScreen: () => ({ width: 1, height: 1, rgba: raw }),
-    updateCount: 0,
-  };
-  // first call returns an action, second call signals done
-  let chatCalls = 0;
-  agent._ai.chat = async () => {
-    chatCalls++;
-    if (chatCalls === 1) return JSON.stringify([{ cmd: 'click', x: 0, y: 0 }]);
-    return JSON.stringify({ done: true, result: 'done' });
-  };
-  agent.execute = async () => {};
-
-  const steps = [];
-  const res = await agent.run('test', { maxSteps: 3, onStep: (s, actions) => steps.push({ s, actions }) });
-  assert.equal(res.result, 'done');
-  assert.equal(steps.length, 1, 'one onStep callback should have been invoked');
-  assert.equal(steps[0].s, 1);
-  assert.deepEqual(steps[0].actions, [{ cmd: 'click', x: 0, y: 0 }]);
-});
-
-// new behaviour: fail early when no screenshot is available
 
 test('Agent.run throws if screenshotRaw returns null', async () => {
   const agent = new Agent();

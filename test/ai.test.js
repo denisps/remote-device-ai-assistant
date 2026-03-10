@@ -214,16 +214,16 @@ test('AIChat: userText stages a text part', () => {
   assert.equal(chat._pending[0].text, 'hello');
 });
 
-test('AIChat: userImage stages an image_url part as base64 data URL', () => {
+test('AIChat: userImage stages an image_url part using the provided URL', () => {
   const client = new AIClient();
   const chat   = client.newChat();
-  const buf    = Buffer.from([137, 80, 78, 71]); // fake PNG header bytes
-  chat.userImage(buf, 'image/png');
+  // supply a fake data URL – the helper no longer constructs one for us
+  const url = 'data:image/png;base64,ZmFrZS1wbmc='; // “fake-png” base64
+  chat.userImage(url);
+
   assert.equal(chat._pending.length, 1);
   assert.equal(chat._pending[0].type, 'image_url');
-  const url = chat._pending[0].image_url.url;
-  assert.ok(url.startsWith('data:image/png;base64,'), 'should be a png data URL');
-  assert.equal(url, `data:image/png;base64,${buf.toString('base64')}`);
+  assert.equal(chat._pending[0].image_url.url, url);
 });
 
 test('AIChat: send() flushes pending as user message and appends assistant reply', async () => {
@@ -248,7 +248,8 @@ test('AIChat: send() flushes pending as user message and appends assistant reply
     // history should now be: system + user + assistant
     assert.equal(chat._history.length, 3);
     assert.equal(chat._history[1].role, 'user');
-    assert.equal(chat._history[1].content, 'question'); // sole text → plain string
+    assert.deepEqual(chat._history[1].content, [{ type: 'text', text: 'question' }]);
+    // previous behaviour collapsed a lone text part to a string; support has been removed
     assert.equal(chat._history[2].role, 'assistant');
     assert.equal(chat._history[2].content, 'reply text');
 
@@ -274,8 +275,8 @@ test('AIChat: send() with image uses multipart array content', async () => {
   try {
     const client = new AIClient({ baseUrl: `http://127.0.0.1:${port}/v1` });
     const chat   = client.newChat();
-    const buf    = Buffer.from('fake-png');
-    chat.userImage(buf, 'image/png');
+    const url    = 'data:image/png;base64,ZmFrZS1wbmc='; // "fake-png" base64
+    chat.userImage(url);
     chat.userText('describe it');
     await chat.send();
 

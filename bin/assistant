@@ -1,13 +1,10 @@
 #!/usr/bin/env node
 'use strict';
 
-const readline = require('readline');
-
-const { AIClient }                           = require('../lib/ai');
-const { VNCClient }                          = require('vnc-tool/lib/client');
 const { loadConfig, saveConfig, CONFIG_FILE } = require('../lib/config');
 const { Agent, parseResponse, printStepSummary } = require('../lib/agent');
 const { detectCoordSystem }                  = require('../lib/detect');
+const { Console }                            = require('../lib/console');
 
 // ── ANSI helpers ──────────────────────────────────────────────────────────────
 
@@ -21,124 +18,13 @@ const C = {
   cyan:   '\x1b[36m',
 };
 
+const cli = new Console();
+
 const ok   = (s) => `${C.green}✓${C.reset} ${s}`;
 const fail = (s) => `${C.red}✗${C.reset} ${s}`;
 const info = (s) => `${C.cyan}→${C.reset} ${s}`;
 const bold = (s) => `${C.bold}${s}${C.reset}`;
 const dim  = (s) => `${C.dim}${s}${C.reset}`;
-
-// ── Interactive prompt helpers ────────────────────────────────────────────────
-
-/**
- * In non-TTY mode (piped input), stdin is pre-buffered upfront so that the
- * async gap between sequential rl.question() calls does not cause readline to
- * read ahead and discard answers meant for later prompts.
- */
-let _pipedLines     = null;   // null = TTY / not yet initialised
-let _pipedLineIndex = 0;
-
-async function initStdin() {
-  if (process.stdin.isTTY) return;   // real terminal — nothing to do
-  if (_pipedLines !== null) return;  // already buffered
-  return new Promise((resolve) => {
-    const lines = [];
-    const rl = readline.createInterface({ input: process.stdin, terminal: false });
-    rl.on('line', (l) => lines.push(l));
-    rl.on('close', () => { _pipedLines = lines; resolve(); });
-  });
-}
-
-function closeRL() {
-  // Nothing to close — readline interfaces are short-lived in TTY mode
-  // and stdin is already consumed in piped mode.
-}
-
-/** Prompt for a line of input with an optional default value. */
-function ask(question, defaultVal = '') {
-  return new Promise((resolve) => {
-    const label = defaultVal !== '' ? `${question} [${defaultVal}]: ` : `${question}: `;
-
-    if (_pipedLines !== null) {
-      // Piped / non-interactive mode: answer from pre-buffered lines.
-      const raw    = (_pipedLineIndex < _pipedLines.length) ? _pipedLines[_pipedLineIndex++] : '';
-      const answer = raw.trim() !== '' ? raw.trim() : defaultVal;
-      process.stdout.write(`${label}${answer}\n`);
-      resolve(answer);
-      return;
-    }
-
-    // Interactive TTY mode.
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl.question(label, (answer) => {
-      rl.close();
-      resolve(answer.trim() !== '' ? answer.trim() : defaultVal);
-    });
-  });
-}
-
-/** Prompt for a yes/no answer. */
-async function askYesNo(question, defaultYes = true) {
-  const hint   = defaultYes ? 'Y/n' : 'y/N';
-  const answer = await ask(`${question} [${hint}]`);
-  if (answer === '' || answer === (defaultYes ? 'Y/n' : 'y/N')) return defaultYes;
-  return /^y/i.test(answer);
-}
-
-/**
- * Prompt for a secret value (password) without echoing typed characters.
- * Falls back to a visible prompt when stdin is not a TTY.
- */
-function askSecret(question) {
-  // In piped mode secrets are read the same as plain answers (no masking needed).
-  if (_pipedLines !== null) return ask(question);
-
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    let questionShown = false;
-    rl._writeToOutput = (str) => {
-      if (!questionShown) {
-        process.stdout.write(str);
-        questionShown = true;
-      } else if (str === '\r\n' || str === '\n' || str === '\r') {
-        process.stdout.write('\n');
-      }
-      // Suppress echoing of typed characters
-    };
-    rl.question(`${question}: `, (answer) => {
-      rl.close();
-      resolve(answer);
-    });
-  });
-}
-
-// ── Connection validators ─────────────────────────────────────────────────────
-
-async function validateAI(aiConfig) {
-  const ai = new AIClient(aiConfig);
-  try {
-    const reply = await ai.chat(
-      [{ role: 'user', content: 'Reply with the single word: connected' }],
-      { max_tokens: 20, temperature: 0 },
-    );
-    return { ok: true, response: (reply || '').trim().slice(0, 60) };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
-}
-
-async function validateVNC(vncConfig) {
-  const vnc = new VNCClient(vncConfig);
-  try {
-    await vnc.connect();
-    const width  = vnc.width;
-    const height = vnc.height;
-    await vnc.screenshot();
-    await vnc.disconnect();
-    return { ok: true, width, height };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
-}
 
 // ── Setup wizard ──────────────────────────────────────────────────────────────
 
@@ -147,9 +33,9 @@ async function setupWizard(existing) {
   console.log();
   console.log(bold('── AI API ────────────────────────────────────'));
 
-  const aiBaseUrl = await ask('API endpoint', existing?.ai?.baseUrl || 'http://localhost:11434/v1');
-  const aiApiKey  = await askSecret('API key (blank for local models)');
-  const aiModel   = await ask('Model name', existing?.ai?.model || 'llava');
+  const aiBaseUrl = await cli.ask('API endpoint', existing?.ai?.baseUrl || 'http://localhost:11434/v1');
+  const aiApiKey  = await cli.askSecret('API key (blank for local models)');
+  const aiModel   = await cli.ask('Model name', existing?.ai?.model || 'llava');
 
   const aiConfig = {
     baseUrl: aiBaseUrl,
@@ -158,7 +44,7 @@ async function setupWizard(existing) {
   };
 
   process.stdout.write('Testing AI connection... ');
-  const aiResult = await validateAI(aiConfig);
+  const aiResult = await Agent.validateAI(aiConfig);
   if (aiResult.ok) {
     console.log(ok(`Connected  (model replied: "${aiResult.response}")`));
   } else {
@@ -172,14 +58,13 @@ async function setupWizard(existing) {
   process.stdout.write('Detecting coordinate system... ');
   let coordSystem = existing?.coordSystem || 'norm1000';
   try {
-    const ai = new AIClient(aiConfig);
-    const detected = await detectCoordSystem(ai);
+    const detected = await detectCoordSystem(aiConfig);
     coordSystem = detected.mode;
     console.log(ok(`${bold(coordSystem)}`));
     console.log(dim(`  ${detected.details}`));
   } catch (e) {
     console.log(fail(`Detection failed: ${e.message}`));
-    const manual = await ask('Coordinate system ("norm1000" or "pixels")', coordSystem);
+    const manual = await cli.ask('Coordinate system ("norm1000" or "pixels")', coordSystem);
     if (manual === 'norm1000' || manual === 'pixels') coordSystem = manual;
   }
 
@@ -187,9 +72,9 @@ async function setupWizard(existing) {
   console.log();
   console.log(bold('── VNC ───────────────────────────────────────'));
 
-  const vncHost     = await ask('Device IP or hostname', existing?.vnc?.host || '');
-  const vncPort     = parseInt(await ask('VNC port', String(existing?.vnc?.port || 5900)), 10);
-  const vncPassword = await askSecret('VNC password (blank if none)');
+  const vncHost     = await cli.ask('Device IP or hostname', existing?.vnc?.host || '');
+  const vncPort     = parseInt(await cli.ask('VNC port', String(existing?.vnc?.port || 5900)), 10);
+  const vncPassword = await cli.askSecret('VNC password (blank if none)');
 
   const vncConfig = {
     host:     vncHost,
@@ -198,7 +83,7 @@ async function setupWizard(existing) {
   };
 
   process.stdout.write('Testing VNC connection... ');
-  const vncResult = await validateVNC(vncConfig);
+  const vncResult = await Agent.validateVNC(vncConfig);
   if (vncResult.ok) {
     console.log(ok(`Connected  (${vncResult.width}×${vncResult.height})`));
   } else {
@@ -331,7 +216,7 @@ Configuration is stored in: ${dim(CONFIG_FILE)}
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  await initStdin();
+  await cli.initStdin();
 
   // ── Command-line argument parsing ─────────────────────────────────────────────
   const KNOWN_SWITCHES = new Set([
@@ -418,15 +303,15 @@ async function main() {
   let config = await loadConfig();
   if (config) {
     console.log(ok(`Found configuration: ${config.vnc.host} / model: ${config.ai.model}`));
-    const rerun = await askYesNo('Re-run setup wizard?', false);
+    const rerun = await cli.askYesNo('Re-run setup wizard?', false);
     if (rerun) config = await setupWizard(config);
   } else {
     console.log(info('No configuration found. Starting setup wizard.'));
     config = await setupWizard(null);
   }
 
-  const runDemo = await askYesNo('Run the wallpaper-change demo now?');
-  closeRL();
+  const runDemo = await cli.askYesNo('Run the wallpaper-change demo now?');
+  cli.closeRL();
   if (runDemo) {
     await runTask(config, DEMO_TASK, { label: 'Demo: Change Wallpaper', maxSteps: 20, verbose, screenshots, aiTimeout, maxImageWidth, gridStep });
   }

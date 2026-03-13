@@ -196,13 +196,41 @@ test('AIChat: newChat() returns an AIChat instance', () => {
   assert.ok(chat instanceof AIChat);
 });
 
-test('AIChat: systemText appends a system message to history', () => {
-  const client = new AIClient();
-  const chat   = client.newChat();
-  chat.systemText('You are a bot.');
-  assert.equal(chat._history.length, 1);
-  assert.equal(chat._history[0].role, 'system');
-  assert.equal(chat._history[0].content, 'You are a bot.');
+test('AIChat: systemText stages a system message until send()', async () => {
+  const { server, port } = await startMockServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(okResponse('ok'));
+    });
+  });
+
+  try {
+    const client = new AIClient({ baseUrl: `http://127.0.0.1:${port}/v1` });
+    const chat   = client.newChat();
+
+    chat.systemText('You are a bot.');
+    assert.equal(chat._history.length, 0, 'system messages are not committed until send');
+    assert.equal(chat._pendingSystem.length, 1);
+
+    chat.systemText('Do not mention politics.');
+    assert.equal(chat._pendingSystem.length, 2);
+
+    chat.userText('Hello');
+    await chat.send();
+
+    // history should contain both system messages plus user + assistant
+    assert.equal(chat._history.length, 4);
+    assert.equal(chat._history[0].role, 'system');
+    assert.equal(chat._history[0].content, 'You are a bot.');
+    assert.equal(chat._history[1].role, 'system');
+    assert.equal(chat._history[1].content, 'Do not mention politics.');
+    assert.equal(chat._history[2].role, 'user');
+    assert.equal(chat._pendingSystem.length, 0, 'pending system should be cleared on send');
+  } finally {
+    await stopServer(server);
+  }
 });
 
 test('AIChat: userText stages a text part', () => {
@@ -289,10 +317,13 @@ test('AIChat: send() with image uses multipart array content', async () => {
   }
 });
 
-test('AIChat: send() throws if nothing is staged', async () => {
+test('AIChat: send() returns undefined when nothing is staged', async () => {
   const client = new AIClient();
   const chat   = client.newChat();
-  await assert.rejects(chat.send(), /no pending user content/);
+
+  const result = await chat.send();
+  assert.equal(result, undefined);
+  assert.equal(chat._history.length, 0);
 });
 
 test('AIChat: multi-turn conversation sends full history each time', async () => {
@@ -327,6 +358,36 @@ test('AIChat: multi-turn conversation sends full history each time', async () =>
     assert.equal(lastMessages[1].role, 'user');
     assert.equal(lastMessages[2].role, 'assistant');
     assert.equal(lastMessages[3].role, 'user');
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test('AIChat: fork clones history and pending state without sharing mutations', async () => {
+  const { server, port } = await startMockServer((req, res) => {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(okResponse('ok'));
+    });
+  });
+
+  try {
+    const client = new AIClient({ baseUrl: `http://127.0.0.1:${port}/v1` });
+    const chat = client.newChat();
+
+    chat.systemText('base');
+    chat.userText('original');
+
+    const forked = chat.fork();
+    forked.userText('forked');
+    await forked.send();
+
+    // original should still have its pending user text and not be affected by forked send
+    assert.equal(chat._pending.length, 1);
+    assert.equal(chat._pending[0].text, 'original');
+    assert.equal(chat._history.length, 0);
   } finally {
     await stopServer(server);
   }

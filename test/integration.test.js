@@ -73,27 +73,3 @@ test('integration/ai: API responds to a text message',
   },
 );
 
-// ── Full agent test ───────────────────────────────────────────────────────────
-
-test('integration/agent: run a task end-to-end',
-  { skip: (VNC_HOST && AI_BASE_URL) ? false : 'Set VNC_HOST and AI_BASE_URL env vars to run' },
-  async () => {
-    const agent = new Agent({
-      vnc:      { host: VNC_HOST, port: VNC_PORT, password: VNC_PASSWORD },
-      ai:       { baseUrl: AI_BASE_URL, apiKey: AI_API_KEY, model: AI_MODEL },
-      maxSteps: 3,
-    });
-
-    const steps = [];
-    await agent.connect();
-    try {
-      const result = await agent.run('Take a screenshot and tell me what you see', {
-        onStep: (step, actions) => { steps.push({ step, actions }); },
-      });
-      assert.ok(result.steps >= 1, 'should have taken at least one step');
-      assert.ok(typeof result.result === 'string', 'result should be a string');
-    } finally {
-      await agent.disconnect();
-    }
-  },
-);

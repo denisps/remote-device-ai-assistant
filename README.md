@@ -107,9 +107,18 @@ With [llama.cpp](https://github.com/ggerganov/llama.cpp), start the server with 
 
 ## Testing
 
-Unit tests run without any VNC server or AI API:
+Prerequisites:
+- Node.js v18 or newer (see package.json engines)
+- Install dependencies before running tests: `npm ci` (recommended) or `npm install`
+- Network access is required to fetch the GitHub-hosted dependency `vnc-tool`
+
+Unit tests run without any VNC server or AI API and do not require any environment variables:
 
 ```bash
+# Install dependencies (recommended reproducible install)
+npm ci
+
+# Run unit tests
 npm test
 npm run test:verbose   # detailed output
 ```
